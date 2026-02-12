@@ -224,6 +224,17 @@ function clean_val($v)
                                     if (empty($anioVal) || (int) $anioVal < 2000)
                                         $anioVal = 2025;
 
+                                    // --- V9.3: Evitar duplicados entre hojas ---
+                                    // Hoja 5 tiene P_MODALIDADES para TODOS los años (muchos como "Otros")
+                                    // Hojas 6-7 tienen TIPO/SUB_TIPO/MODALIDAD detallado para 2025-2026
+                                    // Si cargamos ambos para 2025, se duplican e inflan "Otros"
+                                    if ($i == 5 && (int) $anioVal >= 2025)
+                                        continue;
+
+                                    // Hojas 1-3 son resúmenes nacionales: solo importar si tienen valor histórico
+                                    if ($i <= 3 && (int) $anioVal >= 2025)
+                                        continue;
+
                                     // --- FILTRO: Hojas con detalle geográfico necesitan al menos provincia ---
                                     if ($i >= 5 && empty($row['DIST_HECHO']) && empty($row['PROV_HECHO']))
                                         continue;
