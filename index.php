@@ -1,0 +1,744 @@
+<?php
+/*
+ * DASHBOARD SIDPOL - SQL INTEGRADO (VERSIÓN COMPLETA)
+ * Autor: Michael Espinoza Coila
+ * Fecha: 2026-02-11
+ */
+
+// --- 1. CONFIGURACIÓN Y CONEXIÓN ---
+ini_set('display_errors', 0);
+error_reporting(E_ALL);
+setlocale(LC_TIME, 'es_ES.UTF-8', 'es_ES', 'Spanish');
+date_default_timezone_set('America/Lima');
+require_once 'admin/db.php';
+
+function format_num($num)
+{
+    return number_format($num, 0, ',', '.');
+}
+
+// --- 2. OBTENER OPCIONES PARA SELECTORES (Desde BD) ---
+try {
+    // Años
+    $anios = $pdo->query("SELECT DISTINCT anio FROM sidpol_hechos ORDER BY anio DESC")->fetchAll(PDO::FETCH_COLUMN);
+    // Departamentos
+    $dptos = $pdo->query("SELECT DISTINCT dpto_hecho FROM sidpol_hechos ORDER BY dpto_hecho")->fetchAll(PDO::FETCH_COLUMN);
+    // Tipos Generales
+    $tipos_generales = $pdo->query("SELECT DISTINCT es_delito_general FROM sidpol_hechos ORDER BY es_delito_general")->fetchAll(PDO::FETCH_COLUMN);
+
+    // PARA LOS SELECTORES DEPENDIENTES (Tipo > Subtipo > Modalidad)
+    // Traemos todo el catálogo DISTINTO para armar el mapa JS.
+    // OJO: Si son muchos datos, esto debería ser AJAX, pero para mantener la funcionalidad original:
+    $sql_catalogo = "SELECT DISTINCT tipo_delito, sub_tipo_delito, modalidad_delito FROM sidpol_hechos WHERE tipo_delito != ''";
+    $catalogo = $pdo->query($sql_catalogo)->fetchAll();
+
+    $mapa_delitos_js = [];
+    foreach ($catalogo as $row) {
+        $t = $row['tipo_delito'];
+        $s = $row['sub_tipo_delito'];
+        $m = $row['modalidad_delito'];
+        if ($t && $s && $m) {
+            $mapa_delitos_js[$t][$s][] = $m;
+        }
+    }
+    // Limpiar duplicados y ordenar arrays finales del mapa
+    foreach ($mapa_delitos_js as $t => &$subtipos) {
+        foreach ($subtipos as $s => &$mods) {
+            $mods = array_values(array_unique($mods));
+            sort($mods);
+        }
+    }
+
+} catch (PDOException $e) {
+    die("Error cargando filtros: " . $e->getMessage());
+}
+
+// --- 3. PROCESAR FILTROS RECIBIDOS ---
+$filtros = [
+    'anio' => $_GET['filtro_anio'] ?? ($anios[0] ?? date('Y')),
+    'mes' => $_GET['filtro_mes'] ?? 'todos',
+    'dpto' => $_GET['filtro_dpto'] ?? 'PUNO',
+    'tipo_general' => $_GET['filtro_tipo_general'] ?? 'todos',
+    'comparar' => $_GET['filtro_comparar'] ?? 'ninguno',
+    'anio_comp' => $_GET['filtro_anio_comp'] ?? 'ninguno',
+    'tipo_delito' => $_GET['filtro_tipo_delito'] ?? 'todos',
+    'subtipo_delito' => $_GET['filtro_subtipo_delito'] ?? 'todos',
+    'modalidad_delito' => $_GET['filtro_modalidad_delito'] ?? 'todos',
+];
+$target_dpto = $filtros['dpto'];
+$meses_disponibles = ['01' => 'Ene', '02' => 'Feb', '03' => 'Mar', '04' => 'Abr', '05' => 'May', '06' => 'Jun', '07' => 'Jul', '08' => 'Ago', '09' => 'Sep', '10' => 'Oct', '11' => 'Nov', '12' => 'Dic'];
+
+// --- 4. CONSULTA SQL PRINCIPAL ---
+$sql = "SELECT * FROM sidpol_hechos WHERE 1=1";
+$params = [];
+
+// Aplicar filtros
+if ($filtros['anio'] != 'todos') {
+    $sql .= " AND anio = :anio";
+    $params[':anio'] = $filtros['anio'];
+}
+if ($filtros['mes'] != 'todos') {
+    $sql .= " AND mes = :mes";
+    $params[':mes'] = $filtros['mes'];
+}
+if ($target_dpto != 'TOTAL PERU') {
+    $sql .= " AND dpto_hecho = :dpto";
+    $params[':dpto'] = $target_dpto;
+}
+
+// Filtros de Tipo/Subtipo/Modalidad (Solo aplican si NO es KPI Secundario general, o si se selecciona explícitamente)
+// La lógica original separaba 'raw_delitos' de 'kpi_secundario'. Aquí está todo en una tabla.
+// Si seleccionamos un Tipo Delito específico, restringimos toda la consulta.
+if ($filtros['tipo_general'] != 'todos') {
+    $sql .= " AND es_delito_general = :gen";
+    $params[':gen'] = $filtros['tipo_general'];
+}
+if ($filtros['tipo_delito'] != 'todos') {
+    $sql .= " AND tipo_delito = :td";
+    $params[':td'] = $filtros['tipo_delito'];
+}
+if ($filtros['subtipo_delito'] != 'todos') {
+    $sql .= " AND sub_tipo_delito = :std";
+    $params[':std'] = $filtros['subtipo_delito'];
+}
+if ($filtros['modalidad_delito'] != 'todos') {
+    $sql .= " AND modalidad_delito = :mod";
+    $params[':mod'] = $filtros['modalidad_delito'];
+}
+
+$stmt = $pdo->prepare($sql);
+$stmt->execute($params);
+$data = $stmt->fetchAll();
+
+// --- 5. CALCULAR ESTADÍSTICAS (PHP) ---
+$stats = [
+    'total_general' => 0,
+    'total_delitos' => 0,
+    'total_violencia' => 0,
+    'total_faltas' => 0,
+    'evolucion' => [],
+    'tendencia' => ['texto' => 'Estable', 'icono' => '▬', 'clase' => 'azul']
+];
+$composicion = [];
+$modalidades = [];
+
+foreach ($data as $row) {
+    $stats['total_general'] += $row['cantidad'];
+    if ($row['es_delito_general'] == '1.Delitos')
+        $stats['total_delitos'] += $row['cantidad'];
+    elseif ($row['es_delito_general'] == '2.Faltas')
+        $stats['total_faltas'] += $row['cantidad'];
+    elseif (strpos($row['es_delito_general'], 'Violencia') !== false)
+        $stats['total_violencia'] += $row['cantidad'];
+
+    // Evolución mensual
+    $k = $row['anio'] . '-' . str_pad($row['mes'], 2, '0', STR_PAD_LEFT);
+    @$stats['evolucion'][$k] += $row['cantidad'];
+
+    // Composición
+    @$composicion[$row['es_delito_general']] += $row['cantidad'];
+
+    // Modalidades
+    if ($row['modalidad_delito'])
+        @$modalidades[$row['modalidad_delito']] += $row['cantidad'];
+}
+ksort($stats['evolucion']);
+arsort($composicion);
+arsort($modalidades);
+$top_modalidades = array_slice($modalidades, 0, 10);
+$total_gral = array_sum($composicion); // Total registros filtrados
+
+// Tendencia y Mes Pico
+if (count($stats['evolucion']) > 0) {
+    $max_v = max($stats['evolucion']);
+    $mes_k = array_search($max_v, $stats['evolucion']);
+    $stats['mes_pico'] = ucfirst(strftime('%B %Y', strtotime($mes_k . '-01'))) . " (" . format_num($max_v) . ")";
+
+    if (count($stats['evolucion']) >= 2) {
+        $vals = array_values(array_slice($stats['evolucion'], -2));
+        if ($vals[1] > $vals[0] * 1.1)
+            $stats['tendencia'] = ['texto' => 'En Aumento', 'icono' => '▲', 'clase' => 'rojo'];
+        elseif ($vals[1] < $vals[0] * 0.9)
+            $stats['tendencia'] = ['texto' => 'En Disminución', 'icono' => '▼', 'clase' => 'verde'];
+    }
+}
+
+// --- 6. RANKING Y COMPARATIVAS (Consultas Extra) ---
+$ranking = [];
+$puno_rank = 0;
+if ($target_dpto != 'TOTAL PERU') {
+    $sql_r = "SELECT dpto_hecho, SUM(cantidad) as c FROM sidpol_hechos WHERE es_delito_general='1.Delitos' AND anio=:a GROUP BY dpto_hecho ORDER BY c DESC";
+    $stmt_r = $pdo->prepare($sql_r);
+    $stmt_r->execute([':a' => $filtros['anio']]);
+    $ranking = $stmt_r->fetchAll(PDO::FETCH_KEY_PAIR);
+    $i = 1;
+    foreach ($ranking as $d => $c) {
+        if ($d == $target_dpto) {
+            $puno_rank = $i;
+            break;
+        }
+        $i++;
+    }
+}
+
+$comp_dpto_val = 0;
+if ($filtros['comparar'] != 'ninguno') {
+    $sql_c = "SELECT SUM(cantidad) FROM sidpol_hechos WHERE anio=:a AND dpto_hecho=:d AND es_delito_general='1.Delitos'";
+    $stmt_c = $pdo->prepare($sql_c);
+    $stmt_c->execute([':a' => $filtros['anio'], ':d' => $filtros['comparar']]);
+    $comp_dpto_val = $stmt_c->fetchColumn();
+}
+
+$comp_anio_val = 0;
+if ($filtros['anio_comp'] != 'ninguno') {
+    $sql_ca = "SELECT SUM(cantidad) FROM sidpol_hechos WHERE anio=:a";
+    $p_ca = [':a' => $filtros['anio_comp']];
+    if ($target_dpto != 'TOTAL PERU') {
+        $sql_ca .= " AND dpto_hecho=:d";
+        $p_ca[':d'] = $target_dpto;
+    }
+    $sql_ca .= " AND es_delito_general='1.Delitos'"; // Comparar solo delitos por defecto
+    $stmt_ca = $pdo->prepare($sql_ca);
+    $stmt_ca->execute($p_ca);
+    $comp_anio_val = $stmt_ca->fetchColumn();
+}
+
+
+// --- 7. VARIABLES VISUALES ---
+// Maximos para barras
+$max_evol = $stats['evolucion'] ? max($stats['evolucion']) : 0;
+$max_mod = $top_modalidades ? max($top_modalidades) : 0;
+$max_rank = $ranking ? max($ranking) : 0;
+$max_comp_dpto = max($stats['total_delitos'], $comp_dpto_val);
+$max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
+
+?>
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard SIDPOL</title>
+    <style>
+        body {
+            font-family: -apple-system, system-ui, sans-serif;
+            background: #f0f2f5;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: auto;
+        }
+
+        h1 {
+            color: #004a99;
+            margin-bottom: 20px;
+        }
+
+        /* Panel Filtros Grid */
+        .filters {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+            margin-bottom: 20px;
+        }
+
+        .filters form {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 15px;
+            align-items: end;
+        }
+
+        .filters label {
+            display: block;
+            font-weight: 600;
+            font-size: 12px;
+            margin-bottom: 5px;
+            color: #555;
+        }
+
+        .filters select,
+        .filters button,
+        .btn-limpiar {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+
+        .filters button {
+            background: #007bff;
+            color: white;
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .filters button:hover {
+            background: #0056b3;
+        }
+
+        .btn-limpiar {
+            background: #6c757d;
+            color: white;
+            text-align: center;
+            text-decoration: none;
+            display: block;
+        }
+
+        /* KPIs */
+        .kpis {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+            text-align: center;
+        }
+
+        .card h2 {
+            font-size: 2.5em;
+            margin: 10px 0;
+            color: #333;
+        }
+
+        .card p {
+            color: #666;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        /* Bordes de color para KPIs */
+        .k-delito {
+            border-bottom: 4px solid #dc3545;
+        }
+
+        .k-delito h2 {
+            color: #dc3545;
+        }
+
+        .k-violencia {
+            border-bottom: 4px solid #ffc107;
+        }
+
+        .k-violencia h2 {
+            color: #e9a300;
+        }
+
+        .k-falta {
+            border-bottom: 4px solid #17a2b8;
+        }
+
+        .k-falta h2 {
+            color: #17a2b8;
+        }
+
+        /* Gráficos Grid */
+        .charts {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+
+        .chart-box {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        }
+
+        .chart-box h3 {
+            margin-top: 0;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            font-size: 1.1em;
+            color: #444;
+        }
+
+        /* Barras */
+        ul.bar-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        ul.bar-list li {
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .lbl {
+            flex: 0 0 140px;
+            font-size: 12px;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .bar-bg {
+            flex: 1;
+            background: #f1f1f1;
+            height: 18px;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .bar {
+            height: 100%;
+            background: #007bff;
+            color: white;
+            font-size: 11px;
+            line-height: 18px;
+            text-align: right;
+            padding-right: 5px;
+            white-space: nowrap;
+        }
+
+        @media (max-width: 1000px) {
+            .charts {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+    <script>
+        // Lógica JS para selectores dependientes (Tipo -> Subtipo -> Modalidad)
+        const mapa = <?= json_encode($mapa_delitos_js) ?>;
+        const sel = {
+            t: "<?= $filtros['tipo_delito'] ?>",
+            s: "<?= $filtros['subtipo_delito'] ?>",
+            m: "<?= $filtros['modalidad_delito'] ?>"
+        };
+
+        function updateSelect(id, options, selected) {
+            const el = document.getElementById(id);
+            el.innerHTML = '<option value="todos">Todos</option>';
+            options.forEach(opt => {
+                const o = document.createElement('option');
+                o.value = o.text = opt;
+                if (opt === selected) o.selected = true;
+                el.appendChild(o);
+            });
+        }
+
+        function updateSubs() {
+            const t = document.getElementById('filtro_tipo_delito').value;
+            let subs = [];
+            if (t === 'todos') {
+                Object.values(mapa).forEach(s_map => subs.push(...Object.keys(s_map)));
+            } else if (mapa[t]) {
+                subs = Object.keys(mapa[t]);
+            }
+            subs = [...new Set(subs)].sort();
+            updateSelect('filtro_subtipo_delito', subs, sel.s);
+            updateMods();
+        }
+
+        function updateMods() {
+            const t = document.getElementById('filtro_tipo_delito').value;
+            const s = document.getElementById('filtro_subtipo_delito').value;
+            let mods = [];
+
+            if (t === 'todos' && s === 'todos') {
+                Object.values(mapa).forEach(sm => Object.values(sm).forEach(m => mods.push(...m)));
+            } else if (t !== 'todos' && s === 'todos') {
+                if (mapa[t]) Object.values(mapa[t]).forEach(m => mods.push(...m));
+            } else if (t === 'todos' && s !== 'todos') {
+                // Buscar ese subtipo en todos los tipos (raro pero posible)
+                Object.values(mapa).forEach(sm => { if (sm[s]) mods.push(...sm[s]); });
+            } else if (mapa[t] && mapa[t][s]) {
+                mods = mapa[t][s];
+            }
+            mods = [...new Set(mods)].sort();
+            updateSelect('filtro_modalidad_delito', mods, sel.m);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // Llenar Tipo Delito inicial
+            updateSelect('filtro_tipo_delito', Object.keys(mapa).sort(), sel.t);
+            updateSubs(); // Esto dispara updateMods
+
+            document.getElementById('filtro_tipo_delito').addEventListener('change', () => {
+                sel.s = 'todos'; sel.m = 'todos'; updateSubs();
+            });
+            document.getElementById('filtro_subtipo_delito').addEventListener('change', () => {
+                sel.m = 'todos'; updateMods();
+            });
+        });
+    </script>
+</head>
+
+<body>
+
+    <div class="container">
+        <h1>📈 Dashboard SIDPOL <small>Estadísticas de <?= $target_dpto ?></small></h1>
+
+        <div class="filters">
+            <form method="GET">
+                <div>
+                    <label>Departamento / Región:</label>
+                    <select name="filtro_dpto" onchange="this.form.submit()">
+                        <option value="TOTAL PERU" <?= $target_dpto == 'TOTAL PERU' ? 'selected' : '' ?>>TOTAL PERU
+                        </option>
+                        <?php foreach ($dptos as $d): ?>
+                            <option value="<?= $d ?>" <?= $target_dpto == $d ? 'selected' : '' ?>><?= $d ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div>
+                    <label>Año Base:</label>
+                    <select name="filtro_anio">
+                        <?php foreach ($anios as $a): ?>
+                            <option value="<?= $a ?>" <?= $filtros['anio'] == $a ? 'selected' : '' ?>><?= $a ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div>
+                    <label>Comparar Año con:</label>
+                    <select name="filtro_anio_comp">
+                        <option value="ninguno">Ninguno</option>
+                        <?php foreach ($anios as $a):
+                            if ($a == $filtros['anio'])
+                                continue; ?>
+                            <option value="<?= $a ?>" <?= $filtros['anio_comp'] == $a ? 'selected' : '' ?>><?= $a ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div>
+                    <label>Mes:</label>
+                    <select name="filtro_mes">
+                        <option value="todos">Todos</option>
+                        <?php foreach ($meses_disponibles as $k => $v): ?>
+                            <option value="<?= $k ?>" <?= $filtros['mes'] == $k ? 'selected' : '' ?>><?= $v ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div>
+                    <label>Tipo General:</label>
+                    <select name="filtro_tipo_general">
+                        <option value="todos">Todos</option>
+                        <?php foreach ($tipos_generales as $t): ?>
+                            <option value="<?= $t ?>" <?= $filtros['tipo_general'] == $t ? 'selected' : '' ?>><?= $t ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div>
+                    <label>Comparar Dpto con:</label>
+                    <select name="filtro_comparar" <?= $target_dpto == 'TOTAL PERU' ? 'disabled' : '' ?>>
+                        <option value="ninguno">Ninguno</option>
+                        <?php foreach ($dptos as $d):
+                            if ($d == $target_dpto)
+                                continue; ?>
+                            <option value="<?= $d ?>" <?= $filtros['comparar'] == $d ? 'selected' : '' ?>><?= $d ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <!-- SELECTORES DEPENDIENTES JS -->
+                <div><label>Tipo de Delito:</label><select name="filtro_tipo_delito" id="filtro_tipo_delito"></select>
+                </div>
+                <div><label>Sub-Tipo:</label><select name="filtro_subtipo_delito" id="filtro_subtipo_delito"></select>
+                </div>
+                <div><label>Modalidad:</label><select name="filtro_modalidad_delito"
+                        id="filtro_modalidad_delito"></select></div>
+
+                <div>
+                    <label>&nbsp;</label>
+                    <button type="submit">Filtrar</button>
+                </div>
+                <div>
+                    <label>&nbsp;</label>
+                    <a href="index.php" class="btn-limpiar">Limpiar</a>
+                </div>
+            </form>
+        </div>
+
+        <!-- KPIS -->
+        <div class="kpis">
+            <div class="card k-delito">
+                <h2><?php
+                $mostrar_total = ($filtros['tipo_general'] == 'todos') ? $stats['total_general'] : $stats['total_delitos'];
+                echo format_num($mostrar_total);
+                ?></h2>
+                <p>Total Delitos</p>
+            </div>
+            <div class="card k-violencia">
+                <h2><?= format_num($stats['total_violencia']) ?></h2>
+                <p>Violencia</p>
+            </div>
+            <div class="card k-falta">
+                <h2><?= format_num($stats['total_faltas']) ?></h2>
+                <p>Faltas</p>
+            </div>
+            <div class="card k-tendencia">
+                <h2 style="font-size:1.8em" class="<?= $stats['tendencia']['clase'] ?>">
+                    <?= $stats['tendencia']['icono'] ?> <?= $stats['tendencia']['texto'] ?>
+                </h2>
+                <p>Tendencia</p>
+            </div>
+        </div>
+
+        <div class="charts">
+            <div class="chart-box">
+                <h3>Composición</h3>
+                <ul class="bar-list">
+                    <?php foreach ($composicion as $k => $v):
+                        $pct = $total_gral ? ($v / $total_gral) * 100 : 0; ?>
+                        <li>
+                            <span class="lbl"><?= $k ?></span>
+                            <div class="bar-bg">
+                                <div class="bar" style="width:<?= $pct ?>%; background-color: #6c757d;">
+                                    <?= format_num($v) ?>
+                                </div>
+                            </div>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+
+            <div class="chart-box">
+                <h3>Top Modalidades</h3>
+                <ul class="bar-list">
+                    <?php foreach ($top_modalidades as $k => $v):
+                        $pct = $max_mod ? ($v / $max_mod) * 100 : 0; ?>
+                        <li>
+                            <span class="lbl" title="<?= $k ?>"><?= $k ?></span>
+                            <div class="bar-bg">
+                                <div class="bar" style="width:<?= $pct ?>%"><?= format_num($v) ?></div>
+                            </div>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+
+            <div class="chart-box">
+                <h3>Ranking Nacional</h3>
+                <?php if ($target_dpto == 'TOTAL PERU'): ?>
+                    <p style="text-align:center;color:#888;margin-top:40px;">No aplica</p>
+                <?php else: ?>
+                    <h2 style="text-align:center;color:#004a99;font-size:3em;margin:0 0 10px 0;"><?= $puno_rank ?></h2>
+                    <ul class="bar-list">
+                        <?php
+                        $top5 = array_slice($ranking, 0, 5, true);
+                        foreach ($top5 as $d => $v):
+                            $pct = $max_rank ? ($v / $max_rank) * 100 : 0;
+                            $color = ($d == $target_dpto) ? '#007bff' : '#dc3545';
+                            ?>
+                            <li>
+                                <span class="lbl"
+                                    style="<?= $d == $target_dpto ? 'font-weight:bold;color:#007bff' : '' ?>"><?= $d ?></span>
+                                <div class="bar-bg">
+                                    <div class="bar" style="width:<?= $pct ?>%; background:<?= $color ?>"><?= format_num($v) ?>
+                                    </div>
+                                </div>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                <?php endif; ?>
+            </div>
+
+            <?php if ($filtros['comparar'] != 'ninguno'): ?>
+                <div class="chart-box">
+                    <h3>Vs <?= $filtros['comparar'] ?></h3>
+                    <ul class="bar-list">
+                        <li><span class="lbl"><?= $target_dpto ?></span>
+                            <div class="bar-bg">
+                                <div class="bar"
+                                    style="width:<?= $max_comp_dpto ? ($stats['total_delitos'] / $max_comp_dpto) * 100 : 0 ?>%">
+                                    <?= format_num($stats['total_delitos']) ?>
+                                </div>
+                            </div>
+                        </li>
+                        <li><span class="lbl"><?= $filtros['comparar'] ?></span>
+                            <div class="bar-bg">
+                                <div class="bar"
+                                    style="width:<?= $max_comp_dpto ? ($comp_dpto_val / $max_comp_dpto) * 100 : 0 ?>%; background:#dc3545">
+                                    <?= format_num($comp_dpto_val) ?>
+                                </div>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+            <?php endif; ?>
+
+            <?php if ($filtros['anio_comp'] != 'ninguno'): ?>
+                <div class="chart-box">
+                    <h3>Vs Año <?= $filtros['anio_comp'] ?></h3>
+                    <ul class="bar-list">
+                        <li><span class="lbl"><?= $filtros['anio'] ?></span>
+                            <div class="bar-bg">
+                                <div class="bar"
+                                    style="width:<?= $max_comp_anio ? ($stats['total_delitos'] / $max_comp_anio) * 100 : 0 ?>%">
+                                    <?= format_num($stats['total_delitos']) ?>
+                                </div>
+                            </div>
+                        </li>
+                        <li><span class="lbl"><?= $filtros['anio_comp'] ?></span>
+                            <div class="bar-bg">
+                                <div class="bar"
+                                    style="width:<?= $max_comp_anio ? ($comp_anio_val / $max_comp_anio) * 100 : 0 ?>%; background:#ffc107">
+                                    <?= format_num($comp_anio_val) ?>
+                                </div>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+            <?php endif; ?>
+
+            <div class="chart-box" style="grid-column: 1 / -1;">
+                <h3>Evolución Mensual</h3>
+                <ul class="bar-list">
+                    <?php foreach ($stats['evolucion'] as $mes => $v):
+                        $pct = $max_evol ? ($v / $max_evol) * 100 : 0;
+                        $lbl = strftime('%b %Y', strtotime($mes . '-01'));
+                        ?>
+                        <li>
+                            <span class="lbl" style="flex:0 0 80px"><?= $lbl ?></span>
+                            <div class="bar-bg">
+                                <div class="bar"
+                                    style="width:<?= $pct ?>%; background:#28a745; text-align:left; padding-left:5px;">
+                                    <?= format_num($v) ?>
+                                </div>
+                            </div>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <footer
+        style="text-align: center; margin-top: 40px; padding: 20px; color: #666; font-size: 13px; border-top: 1px solid #ddd;">
+        <p><strong>Fuente de información de acceso público:</strong> <a href="https://observatorio.mininter.gob.pe/"
+                target="_blank" style="color: #555; text-decoration: underline;">Base de datos - Hechos delictivos
+                basados en denuncias en el SIDPOL</a></p>
+        <p>Desarrollado por <strong>Michael Espinoza Coila</strong> asistido por <strong>Gemini 3</strong>.</p>
+    </footer>
+
+</body>
+
+</html>

@@ -1,0 +1,32 @@
+# Ignorar todo por defecto
+*
+
+# Permitir carpetas necesarias
+!admin/
+
+# Permitir solo archivos PHP y el esquema SQL
+!*.php
+!admin/**/*.php
+!database_schema.sql
+!.gitignore
+!htaccess
+
+# Excluir específicamente los archivos de prueba y diagnóstico
+admin/check_*.php
+admin/debug_*.php
+admin/conteo_*.php
+admin/show_*.php
+admin/verificar_*.php
+admin/dump_*.php
+admin/reset_*.php
+admin/procesar_excel_stream.php
+admin/procesar_local_xlsx.php
+migrar_csv_a_sql.php
+migrar_excel_final.php
+migrar_v4.php
+
+# Excluir archivos de datos y pesados (por si acaso)
+*.xlsx
+*.csv
+fcjp_dashboard.sql
+.DS_Store
