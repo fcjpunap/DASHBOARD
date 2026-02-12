@@ -28,27 +28,6 @@ try {
     // Fuentes (SIDPOL vs MPFN)
     $fuentes = $pdo->query("SELECT DISTINCT fuente FROM sidpol_hechos ORDER BY fuente")->fetchAll(PDO::FETCH_COLUMN);
 
-    // Mapa Geográfico Jerárquico (Dpto -> Prov -> Dist) para selectores cascada JS
-    $geo_raw = $pdo->query("SELECT DISTINCT dpto_hecho, prov_hecho, dist_hecho FROM sidpol_hechos WHERE dpto_hecho != '' AND prov_hecho != '' ORDER BY dpto_hecho, prov_hecho, dist_hecho")->fetchAll();
-    $mapa_geo_js = [];
-    foreach ($geo_raw as $g) {
-        $d = $g['dpto_hecho'];
-        $p = $g['prov_hecho'];
-        $di = $g['dist_hecho'];
-        if ($d && $p) {
-            if (!isset($mapa_geo_js[$d][$p]))
-                $mapa_geo_js[$d][$p] = [];
-            if ($di)
-                $mapa_geo_js[$d][$p][] = $di;
-        }
-    }
-    foreach ($mapa_geo_js as $d => &$provs) {
-        foreach ($provs as $p => &$dists) {
-            $dists = array_values(array_unique($dists));
-            sort($dists);
-        }
-    }
-
     // PARA LOS SELECTORES DEPENDIENTES (Tipo > Subtipo > Modalidad)
     // Traemos todo el catálogo DISTINTO para armar el mapa JS.
     // OJO: Si son muchos datos, esto debería ser AJAX, pero para mantener la funcionalidad original:
@@ -460,9 +439,8 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
         }
     </style>
     <script>
-        // Lógica JS para selectores dependientes (Tipo -> Subtipo -> Modalidad)
+        // Catálogo de delitos (relativamente pequeño, OK inline)
         const mapa = <?= json_encode($mapa_delitos_js) ?>;
-        const geo = <?= json_encode($mapa_geo_js) ?>;
         const sel = {
             t: "<?= $filtros['tipo_delito'] ?>",
             s: "<?= $filtros['subtipo_delito'] ?>",
@@ -485,8 +463,9 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
             });
         }
 
+        // --- Selectores de Tipo/Subtipo/Modalidad (inline, catálogo pequeño) ---
         function updateSubs() {
-            const t = document.getElementById('filtro_tipo_delito').value;
+            const t = document.getElementById('filtro_tipo_delito')?.value || 'todos';
             let subs = [];
             if (t === 'todos') {
                 Object.values(mapa).forEach(s_map => subs.push(...Object.keys(s_map)));
@@ -499,8 +478,8 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
         }
 
         function updateMods() {
-            const t = document.getElementById('filtro_tipo_delito').value;
-            const s = document.getElementById('filtro_subtipo_delito').value;
+            const t = document.getElementById('filtro_tipo_delito')?.value || 'todos';
+            const s = document.getElementById('filtro_subtipo_delito')?.value || 'todos';
             let mods = [];
             if (t === 'todos' && s === 'todos') {
                 Object.values(mapa).forEach(sm => Object.values(sm).forEach(ms => mods.push(...ms)));
@@ -513,47 +492,58 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
             updateSelect('filtro_modalidad_delito', mods, sel.m);
         }
 
-        function updateProvs() {
-            const dpto = document.getElementById('filtro_dpto').value;
-            let provs = [];
-            if (dpto !== 'TOTAL PERU' && geo[dpto]) {
-                provs = Object.keys(geo[dpto]).sort();
-            }
-            updateSelect('filtro_prov', provs, sel.prov);
-            updateSelect('filtro_comp_prov', provs, sel.comp_prov, 'Ninguno', 'ninguno');
-            updateDists();
+        // --- Selectores Geográficos vía AJAX (rápido, sin cargar todo el mapa) ---
+        async function fetchJSON(url) {
+            try {
+                const res = await fetch(url);
+                return await res.json();
+            } catch (e) { return []; }
         }
 
-        function updateDists() {
-            const dpto = document.getElementById('filtro_dpto').value;
-            const prov = document.getElementById('filtro_prov')?.value || 'todos';
-            let dists = [];
-            if (dpto !== 'TOTAL PERU' && geo[dpto]) {
-                if (prov === 'todos') {
-                    Object.values(geo[dpto]).forEach(ds => dists.push(...ds));
-                } else if (geo[dpto][prov]) {
-                    dists = geo[dpto][prov];
-                }
+        async function updateProvs(triggerDists = true) {
+            const dpto = document.getElementById('filtro_dpto')?.value || '';
+            if (!dpto || dpto === 'TOTAL PERU') {
+                updateSelect('filtro_prov', [], sel.prov);
+                updateSelect('filtro_comp_prov', [], sel.comp_prov, 'Ninguno', 'ninguno');
+                if (triggerDists) updateDists();
+                return;
             }
-            dists = [...new Set(dists)].sort();
+            const provs = await fetchJSON(`admin/api_geo.php?action=provincias&dpto=${encodeURIComponent(dpto)}`);
+            updateSelect('filtro_prov', provs, sel.prov);
+            updateSelect('filtro_comp_prov', provs, sel.comp_prov, 'Ninguno', 'ninguno');
+            if (triggerDists) await updateDists();
+        }
+
+        async function updateDists() {
+            const dpto = document.getElementById('filtro_dpto')?.value || '';
+            const prov = document.getElementById('filtro_prov')?.value || 'todos';
+            if (!dpto || dpto === 'TOTAL PERU') {
+                updateSelect('filtro_dist', [], sel.dist);
+                updateSelect('filtro_comp_dist', [], sel.comp_dist, 'Ninguno', 'ninguno');
+                return;
+            }
+            let url = `admin/api_geo.php?action=distritos&dpto=${encodeURIComponent(dpto)}`;
+            if (prov !== 'todos') url += `&prov=${encodeURIComponent(prov)}`;
+            const dists = await fetchJSON(url);
             updateSelect('filtro_dist', dists, sel.dist);
             updateSelect('filtro_comp_dist', dists, sel.comp_dist, 'Ninguno', 'ninguno');
         }
 
-        // Inicializar todos los selectores al cargar
-        updateSelect('filtro_tipo_delito', Object.keys(mapa).sort(), sel.t);
-        updateSubs();
-        updateProvs();
+        // --- Inicialización: SOLO después de que el DOM esté listo ---
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Tipo/Subtipo/Modalidad
+            updateSelect('filtro_tipo_delito', Object.keys(mapa).sort(), sel.t);
+            updateSubs();
 
-        document.addEventListener('DOMContentLoaded', () => {
-            document.getElementById('filtro_tipo_delito').addEventListener('change', () => {
-                sel.s = 'todos'; updateSubs();
+            // Geográficos vía AJAX
+            await updateProvs();
+
+            // Event Listeners
+            document.getElementById('filtro_tipo_delito')?.addEventListener('change', () => {
+                sel.s = 'todos'; sel.m = 'todos'; updateSubs();
             });
-            document.getElementById('filtro_subtipo_delito').addEventListener('change', () => {
+            document.getElementById('filtro_subtipo_delito')?.addEventListener('change', () => {
                 sel.m = 'todos'; updateMods();
-            });
-            document.getElementById('filtro_dpto')?.addEventListener('change', () => {
-                sel.prov = 'todos'; sel.dist = 'todos'; updateProvs();
             });
             document.getElementById('filtro_prov')?.addEventListener('change', () => {
                 sel.dist = 'todos'; updateDists();
