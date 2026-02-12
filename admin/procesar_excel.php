@@ -224,15 +224,14 @@ function clean_val($v)
                                     if (empty($anioVal) || (int) $anioVal < 2000)
                                         $anioVal = 2025;
 
-                                    // --- V9.8: Evitar duplicados entre hojas ---
-                                    // Hoja 5 tiene P_MODALIDADES para TODOS los años
-                                    // Hojas 6-7 tienen detalle TIPO/SUB_TIPO/MODALIDAD para 2025-2026
+                                    // --- V9.9: Evitar duplicados entre hojas (Refinado) ---
                                     if ($i == 5 && (int) $anioVal >= 2025) {
-                                        $catCheck = $row['ES_DELITO_X'] ?: ($row['ES_DELITO_GENERAL'] ?: '');
-                                        // Solo saltamos los DELITOS de la Hoja 5 para el 2025+, 
-                                        // pues las Hojas 6-7 los traen con mucho más detalle.
-                                        // Pero mantenemos Faltas, Violencia, etc. que solo están en Hoja 5.
-                                        if (strpos($catCheck, '1.Delitos') !== false || empty($catCheck)) {
+                                        // Buscamos la categoría en múltiples columnas posibles
+                                        $catCheck = $row['ES_DELITO_X'] ?: ($row['ES_DELITO_GENERAL'] ?: ($row['TIPO_GENERAL'] ?: ($row['CATEGORIA'] ?: '')));
+
+                                        // Solo saltamos si estamos SEGUROS de que es un Delito (ya que las hojas 6-7 lo traen mejor)
+                                        // Si la categoría está vacía, NO saltamos (podría ser una Falta o dato importante)
+                                        if (!empty($catCheck) && strpos($catCheck, '1.Delitos') !== false) {
                                             continue;
                                         }
                                     }

@@ -143,11 +143,12 @@ $modalidades = [];
 
 foreach ($data as $row) {
     $stats['total_general'] += $row['cantidad'];
-    if ($row['es_delito_general'] == '1.Delitos')
+    $cat_norm = str_replace(' ', '', strtoupper($row['es_delito_general']));
+    if (strpos($cat_norm, '1.DELITO') !== false)
         $stats['total_delitos'] += $row['cantidad'];
-    elseif ($row['es_delito_general'] == '2.Faltas')
+    elseif (strpos($cat_norm, '2.FALTA') !== false)
         $stats['total_faltas'] += $row['cantidad'];
-    elseif (strpos($row['es_delito_general'], 'Violencia') !== false)
+    elseif (strpos($cat_norm, 'VIOLENCIA') !== false || strpos($cat_norm, '4.') !== false)
         $stats['total_violencia'] += $row['cantidad'];
 
     // Evolución mensual
