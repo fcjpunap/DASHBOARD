@@ -674,7 +674,7 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
 
                 <div>
                     <label>Comparar Dpto con:</label>
-                    <select name="filtro_comparar" <?= $target_dpto == 'TOTAL PERU' ? 'disabled' : '' ?>>
+                    <select name="filtro_comparar" id="filtro_comparar" <?= $target_dpto == 'TOTAL PERU' ? 'disabled' : '' ?>>
                         <option value="ninguno">Ninguno</option>
                         <?php foreach ($dptos as $d):
                             if ($d == $target_dpto)
