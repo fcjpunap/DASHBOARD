@@ -171,7 +171,15 @@ function clean_val($v)
                     }
 
                     $fuente = 'SIDPOL';
-                    $permitidas = [1, 2, 3, 4, 5, 6, 7];
+                    // V9.2: Hojas a procesar (SKIP Hoja #4 - solo tiene PRINCIPALES_TIPOS sin modalidad,
+                    // duplica datos de Hoja #5 y genera miles de "Otros")
+                    // Hoja 1: Resumen nacional por Delitos/Faltas (ES_DELITO_X)
+                    // Hoja 2: Resumen nacional por PRINCIPALES_TIPOS
+                    // Hoja 3: Resumen nacional por PMODALIDADES
+                    // Hoja 5: Detalle distrito + P_MODALIDADES (la buena!)
+                    // Hoja 6: Detalle distrito + TIPO/SUB_TIPO/MODALIDAD (2025)
+                    // Hoja 7: Detalle distrito + TIPO/SUB_TIPO/MODALIDAD (2026)
+                    $permitidas = [1, 2, 3, 5, 6, 7];
                     foreach ($permitidas as $i) {
                         $sheetFile = "xl/worksheets/sheet$i.xml";
                         if ($zip->locateName($sheetFile) === false)
@@ -210,39 +218,83 @@ function clean_val($v)
                                     foreach ($header as $k => $v)
                                         $row[$v] = $rowData[$k] ?? '';
 
-                                    $anioVal = $row['ANIO'] ?: ($row['AÑO'] ?: ($row['AÑO_HECHO'] ?: ($row['ANIO_HECHO'] ?: ($row['PERIODOS'] ?: '2025'))));
+                                    // --- AÑO ---
+                                    $anioVal = $row['ANIO'] ?: ($row['AÑO'] ?: '2025');
                                     $anioVal = preg_replace('/[^0-9]/', '', (string) $anioVal);
                                     if (empty($anioVal) || (int) $anioVal < 2000)
                                         $anioVal = 2025;
 
-                                    if ($i >= 4 && empty($row['DIST_HECHO']) && empty($row['PROV_HECHO']))
+                                    // --- FILTRO: Hojas con detalle geográfico necesitan al menos provincia ---
+                                    if ($i >= 5 && empty($row['DIST_HECHO']) && empty($row['PROV_HECHO']))
                                         continue;
 
-                                    // Lógica de Mapeo Reforzada (V9.1) para evitar el exceso de "Otros"
-                                    $tipo = $row['TIPO_DELITO'] ?: ($row['TIPO'] ?: ($row['ES_DELITO_X'] ?: ($row['PRINCIPALES_TIPOS'] ?: ($row['P_MODALIDADES'] ?: 'Otros'))));
+                                    // --- CANTIDAD: n_dist_ID_DGC es el conteo real de incidentes ---
+                                    $cant = (int) ($row['N_DIST_ID_DGC'] ?: 1);
+                                    if ($cant <= 0)
+                                        $cant = 1;
+
+                                    // --- MAPEO INTELIGENTE POR HOJA (V9.2) ---
+                                    // Basado en diagnóstico de cabeceras reales del Excel SIDPOL
+        
+                                    // TIPO DE DELITO
+                                    if (!empty($row['TIPO'])) {
+                                        $tipo = $row['TIPO'];                    // Hojas 6,7
+                                    } elseif (!empty($row['PRINCIPALES_TIPOS'])) {
+                                        $tipo = $row['PRINCIPALES_TIPOS'];        // Hoja 2
+                                    } elseif (!empty($row['PMODALIDADES'])) {
+                                        $tipo = $row['PMODALIDADES'];             // Hoja 3
+                                    } elseif (!empty($row['P_MODALIDADES'])) {
+                                        $tipo = $row['P_MODALIDADES'];            // Hoja 5
+                                    } elseif (!empty($row['ES_DELITO_X'])) {
+                                        $tipo = $row['ES_DELITO_X'];              // Hoja 1
+                                    } else {
+                                        $tipo = 'Sin clasificar';
+                                    }
+
+                                    // Filtrar filas de totales
                                     if (strpos(strtoupper($tipo), 'TOTAL') !== false)
                                         continue;
 
+                                    // SUB-TIPO
+                                    $subtipo = $row['SUB_TIPO'] ?: '';
+
+                                    // MODALIDAD (la clave del problema)
+                                    if (!empty($row['MODALIDAD'])) {
+                                        $mod = $row['MODALIDAD'];                 // Hojas 6,7 (detalle completo)
+                                    } elseif (!empty($row['P_MODALIDADES'])) {
+                                        $mod = $row['P_MODALIDADES'];             // Hoja 5 (ej: "Conducción en estado de ebriedad")
+                                    } elseif (!empty($row['PMODALIDADES'])) {
+                                        $mod = $row['PMODALIDADES'];              // Hoja 3
+                                    } else {
+                                        $mod = $tipo;  // Fallback: usar el tipo en vez de "Otros"
+                                    }
+
+                                    // ES_DELITO_GENERAL (Delitos / Faltas / Violencia)
+                                    $general = $row['ES_DELITO_X'] ?: ($row['ES_DELITO_GENERAL'] ?: '1.Delitos');
+
+                                    // --- UBICACIÓN ---
                                     $mes = $row['MES'] ?: 1;
                                     $ubigeo = $row['UBIGEO_HECHO'] ?: '';
+                                    $dpto = $row['DPTO_HECHO_NEW'] ?: ($row['DPTO_HECHO'] ?: '');
+                                    $prov = $row['PROV_HECHO'] ?: '';
                                     $dist = $row['DIST_HECHO'] ?: '';
-                                    $mod = $row['MODALIDAD_DELITO'] ?: ($row['MODALIDAD'] ?: ($row['MODALIDADES'] ?: ($row['P_MODALIDADES'] ?: 'Otros')));
 
-                                    $hash = md5($fuente . "_" . $anioVal . "_" . $mes . "_" . $ubigeo . "_" . $dist . "_" . $tipo . "_" . $mod);
+                                    // --- HASH (incluye fuente + hoja para evitar cruces entre hojas) ---
+                                    $hash = md5($fuente . "_H{$i}_" . $anioVal . "_" . $mes . "_" . $ubigeo . "_" . $dist . "_" . $tipo . "_" . $mod);
 
                                     $stmt->execute([
                                         $fuente,
                                         $anioVal,
                                         $mes,
                                         $ubigeo,
-                                        $row['DPTO_HECHO_NEW'] ?: ($row['DPTO_HECHO'] ?: ''),
-                                        $row['PROV_HECHO'] ?: '',
+                                        $dpto,
+                                        $prov,
                                         $dist,
                                         $tipo,
-                                        ($row['SUB_TIPO'] ?: ''),
+                                        $subtipo,
                                         $mod,
-                                        $row['ES_DELITO_GENERAL'] ?: ($row['ES_DELITO_X'] ?: '1.Delitos'),
-                                        1,
+                                        $general,
+                                        $cant,
                                         $hash
                                     ]);
                                     if ($stmt->rowCount() > 0)
