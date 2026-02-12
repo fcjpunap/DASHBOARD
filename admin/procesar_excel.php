@@ -96,7 +96,8 @@ function clean_val($v)
                     $header = fgetcsv($handle, 0, ",");
                     // Limpiar BOM y espacios de cabeceras
                     $header = array_map(function ($h) {
-                        return trim(str_replace("\xEF\xBB\xBF", "", $h)); }, $header);
+                        return trim(str_replace("\xEF\xBB\xBF", "", $h));
+                    }, $header);
 
                     // Detectar si es MPFN (Ministerio Público)
                     $isMPFN = in_array('anio_denuncia', $header) || in_array('distrito_fiscal', $header);
@@ -217,14 +218,15 @@ function clean_val($v)
                                     if ($i >= 4 && empty($row['DIST_HECHO']) && empty($row['PROV_HECHO']))
                                         continue;
 
-                                    $tipo = $row['TIPO'] ?: ($row['ES_DELITO_X'] ?: ($row['PRINCIPALES_TIPOS'] ?: ($row['P_MODALIDADES'] ?: 'Otros')));
+                                    // Lógica de Mapeo Reforzada (V9.1) para evitar el exceso de "Otros"
+                                    $tipo = $row['TIPO_DELITO'] ?: ($row['TIPO'] ?: ($row['ES_DELITO_X'] ?: ($row['PRINCIPALES_TIPOS'] ?: ($row['P_MODALIDADES'] ?: 'Otros'))));
                                     if (strpos(strtoupper($tipo), 'TOTAL') !== false)
                                         continue;
 
                                     $mes = $row['MES'] ?: 1;
                                     $ubigeo = $row['UBIGEO_HECHO'] ?: '';
                                     $dist = $row['DIST_HECHO'] ?: '';
-                                    $mod = $row['MODALIDAD'] ?: ($row['P_MODALIDADES'] ?: 'Otros');
+                                    $mod = $row['MODALIDAD_DELITO'] ?: ($row['MODALIDAD'] ?: ($row['MODALIDADES'] ?: ($row['P_MODALIDADES'] ?: 'Otros')));
 
                                     $hash = md5($fuente . "_" . $anioVal . "_" . $mes . "_" . $ubigeo . "_" . $dist . "_" . $tipo . "_" . $mod);
 

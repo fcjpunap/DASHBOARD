@@ -22,11 +22,32 @@ try {
     // Años
     $anios = $pdo->query("SELECT DISTINCT anio FROM sidpol_hechos ORDER BY anio DESC")->fetchAll(PDO::FETCH_COLUMN);
     // Departamentos
-    $dptos = $pdo->query("SELECT DISTINCT dpto_hecho FROM sidpol_hechos ORDER BY dpto_hecho")->fetchAll(PDO::FETCH_COLUMN);
+    $dptos = $pdo->query("SELECT DISTINCT dpto_hecho FROM sidpol_hechos WHERE dpto_hecho != '' ORDER BY dpto_hecho")->fetchAll(PDO::FETCH_COLUMN);
     // Tipos Generales
     $tipos_generales = $pdo->query("SELECT DISTINCT es_delito_general FROM sidpol_hechos ORDER BY es_delito_general")->fetchAll(PDO::FETCH_COLUMN);
-    // Fuentes (Nuevo: SIDPOL vs MPFN)
+    // Fuentes (SIDPOL vs MPFN)
     $fuentes = $pdo->query("SELECT DISTINCT fuente FROM sidpol_hechos ORDER BY fuente")->fetchAll(PDO::FETCH_COLUMN);
+
+    // Mapa Geográfico Jerárquico (Dpto -> Prov -> Dist) para selectores cascada JS
+    $geo_raw = $pdo->query("SELECT DISTINCT dpto_hecho, prov_hecho, dist_hecho FROM sidpol_hechos WHERE dpto_hecho != '' AND prov_hecho != '' ORDER BY dpto_hecho, prov_hecho, dist_hecho")->fetchAll();
+    $mapa_geo_js = [];
+    foreach ($geo_raw as $g) {
+        $d = $g['dpto_hecho'];
+        $p = $g['prov_hecho'];
+        $di = $g['dist_hecho'];
+        if ($d && $p) {
+            if (!isset($mapa_geo_js[$d][$p]))
+                $mapa_geo_js[$d][$p] = [];
+            if ($di)
+                $mapa_geo_js[$d][$p][] = $di;
+        }
+    }
+    foreach ($mapa_geo_js as $d => &$provs) {
+        foreach ($provs as $p => &$dists) {
+            $dists = array_values(array_unique($dists));
+            sort($dists);
+        }
+    }
 
     // PARA LOS SELECTORES DEPENDIENTES (Tipo > Subtipo > Modalidad)
     // Traemos todo el catálogo DISTINTO para armar el mapa JS.
@@ -60,6 +81,8 @@ $filtros = [
     'anio' => $_GET['filtro_anio'] ?? ($anios[0] ?? date('Y')),
     'mes' => $_GET['filtro_mes'] ?? 'todos',
     'dpto' => $_GET['filtro_dpto'] ?? 'PUNO',
+    'prov' => $_GET['filtro_prov'] ?? 'todos',
+    'dist' => $_GET['filtro_dist'] ?? 'todos',
     'tipo_general' => $_GET['filtro_tipo_general'] ?? 'todos',
     'comparar' => $_GET['filtro_comparar'] ?? 'ninguno',
     'anio_comp' => $_GET['filtro_anio_comp'] ?? 'ninguno',
@@ -67,6 +90,8 @@ $filtros = [
     'subtipo_delito' => $_GET['filtro_subtipo_delito'] ?? 'todos',
     'modalidad_delito' => $_GET['filtro_modalidad_delito'] ?? 'todos',
     'fuente' => $_GET['filtro_fuente'] ?? 'todos',
+    'comp_prov' => $_GET['filtro_comp_prov'] ?? 'ninguno',
+    'comp_dist' => $_GET['filtro_comp_dist'] ?? 'ninguno',
 ];
 $target_dpto = $filtros['dpto'];
 $meses_disponibles = ['01' => 'Ene', '02' => 'Feb', '03' => 'Mar', '04' => 'Abr', '05' => 'May', '06' => 'Jun', '07' => 'Jul', '08' => 'Ago', '09' => 'Sep', '10' => 'Oct', '11' => 'Nov', '12' => 'Dic'];
@@ -87,6 +112,14 @@ if ($filtros['mes'] != 'todos') {
 if ($target_dpto != 'TOTAL PERU') {
     $sql .= " AND dpto_hecho = :dpto";
     $params[':dpto'] = $target_dpto;
+}
+if ($filtros['prov'] != 'todos') {
+    $sql .= " AND prov_hecho = :prov";
+    $params[':prov'] = $filtros['prov'];
+}
+if ($filtros['dist'] != 'todos') {
+    $sql .= " AND dist_hecho = :dist";
+    $params[':dist'] = $filtros['dist'];
 }
 if ($filtros['fuente'] != 'todos') {
     $sql .= " AND fuente = :fnt";
@@ -429,15 +462,21 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
     <script>
         // Lógica JS para selectores dependientes (Tipo -> Subtipo -> Modalidad)
         const mapa = <?= json_encode($mapa_delitos_js) ?>;
+        const geo = <?= json_encode($mapa_geo_js) ?>;
         const sel = {
             t: "<?= $filtros['tipo_delito'] ?>",
             s: "<?= $filtros['subtipo_delito'] ?>",
-            m: "<?= $filtros['modalidad_delito'] ?>"
+            m: "<?= $filtros['modalidad_delito'] ?>",
+            prov: "<?= $filtros['prov'] ?>",
+            dist: "<?= $filtros['dist'] ?>",
+            comp_prov: "<?= $filtros['comp_prov'] ?>",
+            comp_dist: "<?= $filtros['comp_dist'] ?>"
         };
 
-        function updateSelect(id, options, selected) {
+        function updateSelect(id, options, selected, defaultLabel = 'Todos', defaultVal = 'todos') {
             const el = document.getElementById(id);
-            el.innerHTML = '<option value="todos">Todos</option>';
+            if (!el) return;
+            el.innerHTML = `<option value="${defaultVal}">${defaultLabel}</option>`;
             options.forEach(opt => {
                 const o = document.createElement('option');
                 o.value = o.text = opt;
@@ -463,14 +502,10 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
             const t = document.getElementById('filtro_tipo_delito').value;
             const s = document.getElementById('filtro_subtipo_delito').value;
             let mods = [];
-
             if (t === 'todos' && s === 'todos') {
-                Object.values(mapa).forEach(sm => Object.values(sm).forEach(m => mods.push(...m)));
-            } else if (t !== 'todos' && s === 'todos') {
-                if (mapa[t]) Object.values(mapa[t]).forEach(m => mods.push(...m));
-            } else if (t === 'todos' && s !== 'todos') {
-                // Buscar ese subtipo en todos los tipos (raro pero posible)
-                Object.values(mapa).forEach(sm => { if (sm[s]) mods.push(...sm[s]); });
+                Object.values(mapa).forEach(sm => Object.values(sm).forEach(ms => mods.push(...ms)));
+            } else if (t !== 'todos' && s === 'todos' && mapa[t]) {
+                Object.values(mapa[t]).forEach(ms => mods.push(...ms));
             } else if (mapa[t] && mapa[t][s]) {
                 mods = mapa[t][s];
             }
@@ -478,16 +513,50 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
             updateSelect('filtro_modalidad_delito', mods, sel.m);
         }
 
-        document.addEventListener('DOMContentLoaded', () => {
-            // Llenar Tipo Delito inicial
-            updateSelect('filtro_tipo_delito', Object.keys(mapa).sort(), sel.t);
-            updateSubs(); // Esto dispara updateMods
+        function updateProvs() {
+            const dpto = document.getElementById('filtro_dpto').value;
+            let provs = [];
+            if (dpto !== 'TOTAL PERU' && geo[dpto]) {
+                provs = Object.keys(geo[dpto]).sort();
+            }
+            updateSelect('filtro_prov', provs, sel.prov);
+            updateSelect('filtro_comp_prov', provs, sel.comp_prov, 'Ninguno', 'ninguno');
+            updateDists();
+        }
 
+        function updateDists() {
+            const dpto = document.getElementById('filtro_dpto').value;
+            const prov = document.getElementById('filtro_prov')?.value || 'todos';
+            let dists = [];
+            if (dpto !== 'TOTAL PERU' && geo[dpto]) {
+                if (prov === 'todos') {
+                    Object.values(geo[dpto]).forEach(ds => dists.push(...ds));
+                } else if (geo[dpto][prov]) {
+                    dists = geo[dpto][prov];
+                }
+            }
+            dists = [...new Set(dists)].sort();
+            updateSelect('filtro_dist', dists, sel.dist);
+            updateSelect('filtro_comp_dist', dists, sel.comp_dist, 'Ninguno', 'ninguno');
+        }
+
+        // Inicializar todos los selectores al cargar
+        updateSelect('filtro_tipo_delito', Object.keys(mapa).sort(), sel.t);
+        updateSubs();
+        updateProvs();
+
+        document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('filtro_tipo_delito').addEventListener('change', () => {
-                sel.s = 'todos'; sel.m = 'todos'; updateSubs();
+                sel.s = 'todos'; updateSubs();
             });
             document.getElementById('filtro_subtipo_delito').addEventListener('change', () => {
                 sel.m = 'todos'; updateMods();
+            });
+            document.getElementById('filtro_dpto')?.addEventListener('change', () => {
+                sel.prov = 'todos'; sel.dist = 'todos'; updateProvs();
+            });
+            document.getElementById('filtro_prov')?.addEventListener('change', () => {
+                sel.dist = 'todos'; updateDists();
             });
         });
     </script>
@@ -496,19 +565,35 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
 <body>
 
     <div class="container">
-        <h1>📈 Dashboard SIDPOL <small>Estadísticas de <?= $target_dpto ?></small></h1>
+        <?php
+        $titulo_ubicacion = $target_dpto;
+        if ($filtros['prov'] != 'todos')
+            $titulo_ubicacion .= ' / ' . $filtros['prov'];
+        if ($filtros['dist'] != 'todos')
+            $titulo_ubicacion .= ' / ' . $filtros['dist'];
+        ?>
+        <h1>📈 Dashboard SIDPOL <small>Estadísticas de <?= $titulo_ubicacion ?></small></h1>
 
         <div class="filters">
             <form method="GET">
                 <div>
                     <label>Departamento / Región:</label>
-                    <select name="filtro_dpto" onchange="this.form.submit()">
+                    <select name="filtro_dpto" id="filtro_dpto" onchange="this.form.submit()">
                         <option value="TOTAL PERU" <?= $target_dpto == 'TOTAL PERU' ? 'selected' : '' ?>>TOTAL PERU
                         </option>
                         <?php foreach ($dptos as $d): ?>
                             <option value="<?= $d ?>" <?= $target_dpto == $d ? 'selected' : '' ?>><?= $d ?></option>
                         <?php endforeach; ?>
                     </select>
+                </div>
+
+                <div>
+                    <label>Provincia:</label>
+                    <select name="filtro_prov" id="filtro_prov"></select>
+                </div>
+                <div>
+                    <label>Distrito:</label>
+                    <select name="filtro_dist" id="filtro_dist"></select>
                 </div>
 
                 <div>
@@ -573,6 +658,14 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
                             <option value="<?= $d ?>" <?= $filtros['comparar'] == $d ? 'selected' : '' ?>><?= $d ?></option>
                         <?php endforeach; ?>
                     </select>
+                </div>
+                <div>
+                    <label>Comparar Prov con:</label>
+                    <select name="filtro_comp_prov" id="filtro_comp_prov"></select>
+                </div>
+                <div>
+                    <label>Comparar Dist con:</label>
+                    <select name="filtro_comp_dist" id="filtro_comp_dist"></select>
                 </div>
 
                 <!-- SELECTORES DEPENDIENTES JS -->
