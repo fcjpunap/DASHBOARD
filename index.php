@@ -504,13 +504,11 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
             const dpto = document.getElementById('filtro_dpto')?.value || '';
             if (!dpto || dpto === 'TOTAL PERU') {
                 updateSelect('filtro_prov', [], sel.prov);
-                updateSelect('filtro_comp_prov', [], sel.comp_prov, 'Ninguno', 'ninguno');
                 if (triggerDists) updateDists();
                 return;
             }
             const provs = await fetchJSON(`admin/api_geo.php?action=provincias&dpto=${encodeURIComponent(dpto)}`);
             updateSelect('filtro_prov', provs, sel.prov);
-            updateSelect('filtro_comp_prov', provs, sel.comp_prov, 'Ninguno', 'ninguno');
             if (triggerDists) await updateDists();
         }
 
@@ -519,13 +517,37 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
             const prov = document.getElementById('filtro_prov')?.value || 'todos';
             if (!dpto || dpto === 'TOTAL PERU') {
                 updateSelect('filtro_dist', [], sel.dist);
-                updateSelect('filtro_comp_dist', [], sel.comp_dist, 'Ninguno', 'ninguno');
                 return;
             }
             let url = `admin/api_geo.php?action=distritos&dpto=${encodeURIComponent(dpto)}`;
             if (prov !== 'todos') url += `&prov=${encodeURIComponent(prov)}`;
             const dists = await fetchJSON(url);
             updateSelect('filtro_dist', dists, sel.dist);
+        }
+
+        // --- Selectores Geográficos de COMPARACIÓN (usan el dpto de comparación) ---
+        async function updateCompProvs(triggerDists = true) {
+            const dptoComp = document.getElementById('filtro_comparar')?.value || 'ninguno';
+            if (dptoComp === 'ninguno' || dptoComp === 'TOTAL PERU') {
+                updateSelect('filtro_comp_prov', [], sel.comp_prov, 'Ninguno', 'ninguno');
+                if (triggerDists) updateCompDists();
+                return;
+            }
+            const provs = await fetchJSON(`admin/api_geo.php?action=provincias&dpto=${encodeURIComponent(dptoComp)}`);
+            updateSelect('filtro_comp_prov', provs, sel.comp_prov, 'Ninguno', 'ninguno');
+            if (triggerDists) await updateCompDists();
+        }
+
+        async function updateCompDists() {
+            const dptoComp = document.getElementById('filtro_comparar')?.value || 'ninguno';
+            const provComp = document.getElementById('filtro_comp_prov')?.value || 'todos';
+            if (dptoComp === 'ninguno' || dptoComp === 'TOTAL PERU') {
+                updateSelect('filtro_comp_dist', [], sel.comp_dist, 'Ninguno', 'ninguno');
+                return;
+            }
+            let url = `admin/api_geo.php?action=distritos&dpto=${encodeURIComponent(dptoComp)}`;
+            if (provComp !== 'todos' && provComp !== 'ninguno') url += `&prov=${encodeURIComponent(provComp)}`;
+            const dists = await fetchJSON(url);
             updateSelect('filtro_comp_dist', dists, sel.comp_dist, 'Ninguno', 'ninguno');
         }
 
@@ -535,10 +557,11 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
             updateSelect('filtro_tipo_delito', Object.keys(mapa).sort(), sel.t);
             updateSubs();
 
-            // Geográficos vía AJAX
+            // Geográficos Base y Comparación
             await updateProvs();
+            await updateCompProvs();
 
-            // Event Listeners
+            // Event Listeners Base
             document.getElementById('filtro_tipo_delito')?.addEventListener('change', () => {
                 sel.s = 'todos'; sel.m = 'todos'; updateSubs();
             });
@@ -547,6 +570,14 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
             });
             document.getElementById('filtro_prov')?.addEventListener('change', () => {
                 sel.dist = 'todos'; updateDists();
+            });
+
+            // Event Listeners Comparación
+            document.getElementById('filtro_comparar')?.addEventListener('change', () => {
+                sel.comp_prov = 'ninguno'; sel.comp_dist = 'ninguno'; updateCompProvs();
+            });
+            document.getElementById('filtro_comp_prov')?.addEventListener('change', () => {
+                sel.comp_dist = 'ninguno'; updateCompDists();
             });
         });
     </script>
