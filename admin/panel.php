@@ -132,18 +132,16 @@ if (!isset($_SESSION['admin_logged_in'])) {
         <form action="procesar_excel.php" method="POST" enctype="multipart/form-data">
 
             <!-- OPCIÓN A: URL -->
-            <label for="url_excel">Opción A: Desde URL (Mininter)</label>
-            <input type="url" name="url_excel" id="url_excel"
-                placeholder="https://observatorio.mininter.gob.pe/.../Base_datos.xlsx">
-            <p class="note">Úsalo si el servidor tiene acceso a internet y el archivo es pequeño.</p>
+            <label for="url_excel">Opción A: Desde URL (Mininter o Ministerio Público)</label>
+            <input type="url" name="url_excel" id="url_excel" placeholder="https://.../dataset.xlsx o .csv">
+            <p class="note">Support for: <b>Mininter (SIDPOL .xlsx)</b> and <b>MPFN (Ministerio Público .csv)</b>.</p>
 
             <div class="or-divider">O</div>
 
             <!-- OPCIÓN B: SUBIDA -->
-            <label for="archivo_excel">Opción B: Subir Archivo (.xlsx)</label>
-            <input type="file" name="archivo_excel" id="archivo_excel" accept=".xlsx">
-            <p class="note">Recomendado para archivos grandes (30MB+). Límite de subida:
-                <?= ini_get('upload_max_filesize') ?></p>
+            <label for="archivo_excel">Opción B: Subir Archivo (.xlsx o .csv)</label>
+            <input type="file" name="archivo_excel" id="archivo_excel" accept=".xlsx,.csv">
+            <p class="note">Recomendado para archivos grandes. Límite: <?= ini_get('upload_max_filesize') ?></p>
 
             <button type="submit" class="btn-submit">🚀 Procesar Datos</button>
         </form>
@@ -151,10 +149,10 @@ if (!isset($_SESSION['admin_logged_in'])) {
         <hr>
         <h3>Instrucciones:</h3>
         <ul style="font-size: 14px; color: #555; padding-left: 20px;">
-            <li>Sube el archivo <b>.xlsx</b> completo (Delitos + Faltas).</li>
-            <li>El sistema detectará automáticamente las pestañas.</li>
-            <li>Se ignorarán los registros duplicados.</li>
-            <li>Ten paciencia, procesar 30MB puede tomar unos minutos.</li>
+            <li><b>SIDPOL (Policía):</b> Sube el excel (.xlsx) oficial del Mininter.</li>
+            <li><b>MPFN (Fiscalía):</b> Pega la URL del CSV de Datos Abiertos.</li>
+            <li>El sistema detectará la fuente automáticamente.</li>
+            <li>Se ignorarán registros duplicados mediante el hash de contenido.</li>
         </ul>
     </div>
 

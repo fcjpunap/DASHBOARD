@@ -25,6 +25,8 @@ try {
     $dptos = $pdo->query("SELECT DISTINCT dpto_hecho FROM sidpol_hechos ORDER BY dpto_hecho")->fetchAll(PDO::FETCH_COLUMN);
     // Tipos Generales
     $tipos_generales = $pdo->query("SELECT DISTINCT es_delito_general FROM sidpol_hechos ORDER BY es_delito_general")->fetchAll(PDO::FETCH_COLUMN);
+    // Fuentes (Nuevo: SIDPOL vs MPFN)
+    $fuentes = $pdo->query("SELECT DISTINCT fuente FROM sidpol_hechos ORDER BY fuente")->fetchAll(PDO::FETCH_COLUMN);
 
     // PARA LOS SELECTORES DEPENDIENTES (Tipo > Subtipo > Modalidad)
     // Traemos todo el catálogo DISTINTO para armar el mapa JS.
@@ -64,6 +66,7 @@ $filtros = [
     'tipo_delito' => $_GET['filtro_tipo_delito'] ?? 'todos',
     'subtipo_delito' => $_GET['filtro_subtipo_delito'] ?? 'todos',
     'modalidad_delito' => $_GET['filtro_modalidad_delito'] ?? 'todos',
+    'fuente' => $_GET['filtro_fuente'] ?? 'todos',
 ];
 $target_dpto = $filtros['dpto'];
 $meses_disponibles = ['01' => 'Ene', '02' => 'Feb', '03' => 'Mar', '04' => 'Abr', '05' => 'May', '06' => 'Jun', '07' => 'Jul', '08' => 'Ago', '09' => 'Sep', '10' => 'Oct', '11' => 'Nov', '12' => 'Dic'];
@@ -84,6 +87,10 @@ if ($filtros['mes'] != 'todos') {
 if ($target_dpto != 'TOTAL PERU') {
     $sql .= " AND dpto_hecho = :dpto";
     $params[':dpto'] = $target_dpto;
+}
+if ($filtros['fuente'] != 'todos') {
+    $sql .= " AND fuente = :fnt";
+    $params[':fnt'] = $filtros['fuente'];
 }
 
 // Filtros de Tipo/Subtipo/Modalidad (Solo aplican si NO es KPI Secundario general, o si se selecciona explícitamente)
@@ -542,6 +549,16 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
                         <?php foreach ($tipos_generales as $t): ?>
                             <option value="<?= $t ?>" <?= $filtros['tipo_general'] == $t ? 'selected' : '' ?>><?= $t ?>
                             </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div>
+                    <label>Fuente (Institución):</label>
+                    <select name="filtro_fuente">
+                        <option value="todos">Todas (Consolidado)</option>
+                        <?php foreach ($fuentes as $f): ?>
+                            <option value="<?= $f ?>" <?= $filtros['fuente'] == $f ? 'selected' : '' ?>><?= $f ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
