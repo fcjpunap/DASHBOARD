@@ -447,6 +447,7 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
             m: "<?= $filtros['modalidad_delito'] ?>",
             prov: "<?= $filtros['prov'] ?>",
             dist: "<?= $filtros['dist'] ?>",
+            comp_dpto: "<?= $filtros['comparar'] ?>",
             comp_prov: "<?= $filtros['comp_prov'] ?>",
             comp_dist: "<?= $filtros['comp_dist'] ?>"
         };
