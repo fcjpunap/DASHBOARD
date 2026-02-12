@@ -535,7 +535,8 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
                 return;
             }
             const provs = await fetchJSON(`admin/api_geo.php?action=provincias&dpto=${encodeURIComponent(dptoComp)}`);
-            updateSelect('filtro_comp_prov', provs, sel.comp_prov, 'Ninguno', 'ninguno');
+            // Cambiamos "Ninguno" por "Todo el Departamento" para mayor claridad
+            updateSelect('filtro_comp_prov', provs, sel.comp_prov, 'Todo el Departamento', 'ninguno');
             if (triggerDists) await updateCompDists();
         }
 
@@ -549,7 +550,8 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
             let url = `admin/api_geo.php?action=distritos&dpto=${encodeURIComponent(dptoComp)}`;
             if (provComp !== 'todos' && provComp !== 'ninguno') url += `&prov=${encodeURIComponent(provComp)}`;
             const dists = await fetchJSON(url);
-            updateSelect('filtro_comp_dist', dists, sel.comp_dist, 'Ninguno', 'ninguno');
+            // Cambiamos "Ninguno" por "Toda la Provincia"
+            updateSelect('filtro_comp_dist', dists, sel.comp_dist, 'Toda la Provincia', 'ninguno');
         }
 
         // --- Inicialización: SOLO después de que el DOM esté listo ---
