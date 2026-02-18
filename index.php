@@ -143,13 +143,14 @@ $modalidades = [];
 
 foreach ($data as $row) {
     $stats['total_general'] += $row['cantidad'];
-    $cat_norm = str_replace(' ', '', strtoupper($row['es_delito_general']));
-    if (strpos($cat_norm, '1.DELITO') !== false)
+    if ($row['es_delito_general'] == '1.DELITOS')
         $stats['total_delitos'] += $row['cantidad'];
-    elseif (strpos($cat_norm, '2.FALTA') !== false)
+    elseif ($row['es_delito_general'] == '2.FALTAS')
         $stats['total_faltas'] += $row['cantidad'];
-    elseif (strpos($cat_norm, 'VIOLENCIA') !== false || strpos($cat_norm, '4.') !== false)
+    elseif ($row['es_delito_general'] == '4.VIOLENCIA')
         $stats['total_violencia'] += $row['cantidad'];
+    elseif ($row['es_delito_general'] == '3. NIÑOS Y ADOLESCENTES' || $row['es_delito_general'] == 'OTROS')
+        @$stats['total_otros_cat'] += $row['cantidad'];
 
     // Evolución mensual
     $k = $row['anio'] . '-' . str_pad($row['mes'], 2, '0', STR_PAD_LEFT);
@@ -187,7 +188,7 @@ if (count($stats['evolucion']) > 0) {
 $ranking = [];
 $puno_rank = 0;
 if ($target_dpto != 'TOTAL PERU') {
-    $sql_r = "SELECT dpto_hecho, SUM(cantidad) as c FROM sidpol_hechos WHERE es_delito_general='1.Delitos' AND anio=:a GROUP BY dpto_hecho ORDER BY c DESC";
+    $sql_r = "SELECT dpto_hecho, SUM(cantidad) as c FROM sidpol_hechos WHERE es_delito_general='1.DELITOS' AND anio=:a GROUP BY dpto_hecho ORDER BY c DESC";
     $stmt_r = $pdo->prepare($sql_r);
     $stmt_r->execute([':a' => $filtros['anio']]);
     $ranking = $stmt_r->fetchAll(PDO::FETCH_KEY_PAIR);
@@ -203,7 +204,7 @@ if ($target_dpto != 'TOTAL PERU') {
 
 $comp_dpto_val = 0;
 if ($filtros['comparar'] != 'ninguno') {
-    $sql_c = "SELECT SUM(cantidad) FROM sidpol_hechos WHERE anio=:a AND dpto_hecho=:d AND es_delito_general='1.Delitos'";
+    $sql_c = "SELECT SUM(cantidad) FROM sidpol_hechos WHERE anio=:a AND dpto_hecho=:d AND es_delito_general='1.DELITOS'";
     $stmt_c = $pdo->prepare($sql_c);
     $stmt_c->execute([':a' => $filtros['anio'], ':d' => $filtros['comparar']]);
     $comp_dpto_val = $stmt_c->fetchColumn();
@@ -217,7 +218,7 @@ if ($filtros['anio_comp'] != 'ninguno') {
         $sql_ca .= " AND dpto_hecho=:d";
         $p_ca[':d'] = $target_dpto;
     }
-    $sql_ca .= " AND es_delito_general='1.Delitos'"; // Comparar solo delitos por defecto
+    $sql_ca .= " AND es_delito_general='1.DELITOS'"; // Comparar solo delitos por defecto
     $stmt_ca = $pdo->prepare($sql_ca);
     $stmt_ca->execute($p_ca);
     $comp_anio_val = $stmt_ca->fetchColumn();
@@ -664,13 +665,19 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
                 </div>
 
                 <div>
-                    <label>Fuente (Institución):</label>
+                    <label title="Suma de datos SIDPOL y MPFN sin duplicados">Fuente (Institución) <sup
+                            style="color:#007bff; cursor:help;">(?)</sup>:</label>
                     <select name="filtro_fuente">
-                        <option value="todos">Todas (Consolidado)</option>
+                        <option value="todos"
+                            title="Consolidado: Suma aritmética de denuncias de todas las fuentes disponibles (SIDPOL + MPFN)">
+                            Todas (Consolidado)</option>
                         <?php foreach ($fuentes as $f): ?>
                             <option value="<?= $f ?>" <?= $filtros['fuente'] == $f ? 'selected' : '' ?>><?= $f ?></option>
                         <?php endforeach; ?>
                     </select>
+                    <small style="display:block; font-size:10px; color:#888; margin-top:4px;">
+                        * <b>Consolidado</b>: Suma de denuncias policiales (SIDPOL) y registros fiscales (MPFN).
+                    </small>
                 </div>
 
                 <div>
@@ -868,10 +875,14 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
 
     <footer
         style="text-align: center; margin-top: 40px; padding: 20px; color: #666; font-size: 13px; border-top: 1px solid #ddd;">
-        <p><strong>Fuente de información de acceso público:</strong> <a href="https://observatorio.mininter.gob.pe/"
-                target="_blank" style="color: #555; text-decoration: underline;">Base de datos - Hechos delictivos
-                basados en denuncias en el SIDPOL</a></p>
-        <p>Desarrollado por <strong>Michael Espinoza Coila</strong> asistido por <strong>Gemini 3</strong>.</p>
+        <p><strong>Fuentes de información de acceso público:</strong>
+            <a href="https://observatorio.mininter.gob.pe/" target="_blank"
+                style="color: #555; text-decoration: underline;">SIDPOL (Mininter)</a> |
+            <a href="https://www.datosabiertos.gob.pe/dataset/mpfn-delitos-denunciados" target="_blank"
+                style="color: #555; text-decoration: underline;">MPFN (Ministerio Público)</a>
+        </p>
+        <p>Desarrollado por <strong>Michael Espinoza Coila</strong> asistido por <strong>Antigravity</strong> y
+            <strong>Claude Opus 4.5</strong>.</p>
     </footer>
 
 </body>

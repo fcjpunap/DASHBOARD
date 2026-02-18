@@ -17,6 +17,16 @@ function clean_val($v)
     return trim(str_replace(["\xEF\xBB\xBF", "\r", "\n"], "", $v));
 }
 
+function normalize_str($v)
+{
+    if (!$v)
+        return "";
+    $v = mb_strtoupper(trim((string) $v), 'UTF-8');
+    $a = ['Á', 'É', 'Í', 'Ó', 'Ú', 'Ü', 'Ñ'];
+    $b = ['A', 'E', 'I', 'O', 'U', 'U', 'N'];
+    return str_replace($a, $b, $v);
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -125,7 +135,15 @@ function clean_val($v)
                             $subtipo = $row['subgenerico'] ?? '';
                             $mod = $row['des_articulo'] ?? '';
                             $cant = (int) ($row['cantidad'] ?? 1);
-                            $general = '1.Delitos';
+                            $general = '1.DELITOS';
+
+                            // --- NORMALIZACIÓN MPFN ---
+                            $tipo = normalize_str($tipo);
+                            $subtipo = normalize_str($subtipo);
+                            $mod = normalize_str($mod);
+                            $dpto = normalize_str($dpto);
+                            $prov = normalize_str($prov);
+                            $dist = normalize_str($dist);
                         } else {
                             // Lógica genérica para CSV de SIDPOL (v8.0 adaptada)
                             $anioVal = $row['anio'] ?? 2025;
@@ -138,7 +156,13 @@ function clean_val($v)
                             $subtipo = $row['sub_tipo_delito'] ?? '';
                             $mod = $row['modalidad_delito'] ?? '';
                             $cant = (int) ($row['cantidad'] ?? 1);
-                            $general = $row['es_delito_general'] ?? '1.Delitos';
+                            $general = '1.DELITOS';
+
+                            // --- NORMALIZACIÓN SIDPOL CSV ---
+                            $tipo = normalize_str($tipo);
+                            $subtipo = normalize_str($subtipo);
+                            $mod = normalize_str($mod);
+                            $dpto = normalize_str($dpto);
                         }
 
                         $hash = md5($fuente . "_" . $anioVal . "_" . $mes . "_" . $ubigeo . "_" . $tipo . "_" . $mod . "_" . $cant);
@@ -224,14 +248,15 @@ function clean_val($v)
                                     if (empty($anioVal) || (int) $anioVal < 2000)
                                         $anioVal = 2025;
 
-                                    // --- V9.9: Evitar duplicados entre hojas (Refinado) ---
+                                    // --- V11.0: EVITAR DUPLICADOS Y CAPTURAR FALTAS/VIOLENCIA (Mejorado) ---
                                     if ($i == 5 && (int) $anioVal >= 2025) {
-                                        // Buscamos la categoría en múltiples columnas posibles
-                                        $catCheck = $row['ES_DELITO_X'] ?: ($row['ES_DELITO_GENERAL'] ?: ($row['TIPO_GENERAL'] ?: ($row['CATEGORIA'] ?: '')));
+                                        // Detectar categoría usando TODO lo disponible (incluyendo la modalidad)
+                                        $catRaw = strtoupper(($row['ES_DELITO_X'] ?? '') . ($row['ES_DELITO_GENERAL'] ?? '') . ($row['TIPO_GENERAL'] ?? '') . ($row['CATEGORIA'] ?? '') . " " . $tipo . " " . $mod);
+                                        $esFalta = (strpos($catRaw, 'FALTA') !== false || strpos($catRaw, '2.') !== false);
+                                        $esViol = (strpos($catRaw, 'VIOLENCIA') !== false || strpos($catRaw, '4.') !== false);
 
-                                        // Solo saltamos si estamos SEGUROS de que es un Delito (ya que las hojas 6-7 lo traen mejor)
-                                        // Si la categoría está vacía, NO saltamos (podría ser una Falta o dato importante)
-                                        if (!empty($catCheck) && strpos($catCheck, '1.Delitos') !== false) {
+                                        // Para 2025+, Sheet 5 solo sirve para rescatar Faltas y Violencia.
+                                        if (!$esFalta && !$esViol) {
                                             continue;
                                         }
                                     }
@@ -285,9 +310,27 @@ function clean_val($v)
                                         $mod = $tipo;  // Fallback: usar el tipo en vez de "Otros"
                                     }
 
-                                    // ES_DELITO_GENERAL (Delitos / Faltas / Violencia)
-                                    $general = $row['ES_DELITO_X'] ?: ($row['ES_DELITO_GENERAL'] ?: ($row['TIPO_GENERAL'] ?: ($row['CATEGORIA'] ?: '1.Delitos')));
+                                    // --- MAPEADO DE CATEGORÍA GENERAL ROBUSTO ---
+                                    $catText = strtoupper(($row['ES_DELITO_X'] ?? '') . " " . ($row['ES_DELITO_GENERAL'] ?? '') . " " . ($row['TIPO_GENERAL'] ?? '') . " " . ($row['CATEGORIA'] ?? '') . " " . $tipo . " " . $mod);
 
+                                    if (strpos($catText, 'FALTA') !== false || strpos($catText, '2.') !== false) {
+                                        $general = '2.FALTAS';
+                                    } elseif (strpos($catText, 'VIOLENCIA') !== false || strpos($catText, '4.') !== false) {
+                                        $general = '4.VIOLENCIA';
+                                    } elseif (strpos($catText, 'NIÑO') !== false || strpos($catText, '3.') !== false) {
+                                        $general = '3. NIÑOS Y ADOLESCENTES';
+                                    } elseif (strpos($catText, 'DELITO') !== false || strpos($catText, '1.') !== false) {
+                                        $general = '1.DELITOS';
+                                    } else {
+                                        $general = 'OTROS';
+                                    }
+
+                                    // --- V10.0: NORMALIZACIÓN TOTAL ---
+                                    $tipo = normalize_str($tipo);
+                                    $subtipo = normalize_str($subtipo);
+                                    $mod = normalize_str($mod);
+                                    // $general ya está normalizado arriba
+        
                                     // --- UBICACIÓN ---
                                     $mes = $row['MES'] ?: 1;
                                     $ubigeo = $row['UBIGEO_HECHO'] ?: '';
@@ -295,8 +338,8 @@ function clean_val($v)
                                     $prov = $row['PROV_HECHO'] ?: '';
                                     $dist = $row['DIST_HECHO'] ?: '';
 
-                                    // --- HASH (incluye fuente + hoja para evitar cruces entre hojas) ---
-                                    $hash = md5($fuente . "_H{$i}_" . $anioVal . "_" . $mes . "_" . $ubigeo . "_" . $dist . "_" . $tipo . "_" . $mod);
+                                    // --- HASH (V10.0: SIN hoja para permitir deduplicación entre hojas) ---
+                                    $hash = md5($fuente . "_" . $anioVal . "_" . $mes . "_" . $ubigeo . "_" . $dist . "_" . $tipo . "_" . $mod);
 
                                     $stmt->execute([
                                         $fuente,
