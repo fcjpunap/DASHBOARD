@@ -2,27 +2,27 @@
 require_once 'admin/db.php';
 header('Content-Type: text/plain');
 
-$anio = 2020;
-$query = "SELECT tipo_delito, sub_tipo_delito, modalidad_delito, es_delito_general, SUM(cantidad) as total 
+echo "Diagnóstico profundo ABIGEATO 2020:\n";
+
+$query = "SELECT tipo_delito, sub_tipo_delito, modalidad_delito, cantidad, HEX(tipo_delito) as tipo_hex, HEX(sub_tipo_delito) as sub_hex 
           FROM sidpol_hechos 
-          WHERE anio = ? AND (sub_tipo_delito LIKE '%ABIGEATO%' OR tipo_delito LIKE '%ABIGEATO%' OR modalidad_delito LIKE '%ABIGEATO%')
-          GROUP BY tipo_delito, sub_tipo_delito, modalidad_delito, es_delito_general";
+          WHERE anio = 2020 AND (sub_tipo_delito LIKE '%ABIGEATO%' OR tipo_delito LIKE '%ABIGEATO%')
+          LIMIT 5";
 
-$stmt = $pdo->prepare($query);
-$stmt->execute([$anio]);
-$results = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-echo "Buscando ABIGEATO en 2020:\n";
-if (empty($results)) {
-    echo "No se encontraron registros de ABIGEATO para 2020.\n";
-
-    echo "\nSub-tipos de Delito disponibles en 2020 (Top 50):\n";
-    $stmt2 = $pdo->query("SELECT sub_tipo_delito, SUM(cantidad) as total FROM sidpol_hechos WHERE anio = 2020 GROUP BY sub_tipo_delito ORDER BY total DESC LIMIT 50");
-    while ($r = $stmt2->fetch(PDO::FETCH_ASSOC)) {
-        echo "- {$r['sub_tipo_delito']} ({$r['total']})\n";
-    }
-} else {
-    foreach ($results as $r) {
-        echo "Tipo: {$r['tipo_delito']} | Subtipo: {$r['sub_tipo_delito']} | Mod: {$r['modalidad_delito']} | Gen: {$r['es_delito_general']} | Total: {$r['total']}\n";
-    }
+$stmt = $pdo->query($query);
+while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
+    echo "-------------------\n";
+    echo "Tipo: [{$r['tipo_delito']}] (Hex: {$r['tipo_hex']})\n";
+    echo "Subtipo: [{$r['sub_tipo_delito']}] (Hex: {$r['sub_hex']})\n";
+    echo "Mod: {$r['modalidad_delito']}\n";
+    echo "Cant: {$r['cantidad']}\n";
 }
+
+echo "\nChequeo de filtros específicos:\n";
+$stmt2 = $pdo->prepare("SELECT SUM(cantidad) FROM sidpol_hechos WHERE anio = 2020 AND tipo_delito = ? AND sub_tipo_delito = ?");
+$stmt2->execute(['CONTRA EL PATRIMONIO', 'ABIGEATO']);
+echo "Búsqueda exacta (CONTRA EL PATRIMONIO + ABIGEATO): " . ($stmt2->fetchColumn() ?: 0) . "\n";
+
+$stmt3 = $pdo->prepare("SELECT SUM(cantidad) FROM sidpol_hechos WHERE anio = 2020 AND tipo_delito LIKE ? AND sub_tipo_delito LIKE ?");
+$stmt3->execute(['%PATRIMONIO%', '%ABIGEATO%']);
+echo "Búsqueda parcial (%PATRIMONIO% + %ABIGEATO%): " . ($stmt3->fetchColumn() ?: 0) . "\n";
