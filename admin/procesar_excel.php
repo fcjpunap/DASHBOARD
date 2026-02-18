@@ -29,12 +29,47 @@ function clean_val($v)
 
 function normalize_str($v)
 {
-    if (!$v)
-        return "";
     $v = mb_strtoupper(trim((string) $v), 'UTF-8');
-    $a = ['Á', 'É', 'Í', 'Ó', 'Ú', 'Ü', 'Ñ'];
-    $b = ['A', 'E', 'I', 'O', 'U', 'U', 'N'];
-    return str_replace($a, $b, $v);
+    $a = ['À', 'Á', 'Â', 'Ã', 'Ä', 'Å', 'Æ', 'Ç', 'È', 'É', 'Ê', 'Ë', 'Ì', 'Í', 'Î', 'Ï', 'Ð', 'Ñ', 'Ò', 'Ó', 'Ô', 'Õ', 'Ö', 'Ø', 'Ù', 'Ú', 'Û', 'Ü', 'Ý', 'ß', 'à', 'á', 'â', 'ã', 'ä', 'å', 'æ', 'ç', 'è', 'é', 'ê', 'ë', 'ì', 'í', 'î', 'ï', 'ð', 'ñ', 'ò', 'ó', 'ô', 'õ', 'ö', 'ø', 'ù', 'ú', 'û', 'ü', 'ý', 'ÿ'];
+    $b = ['A', 'A', 'A', 'A', 'A', 'A', 'AE', 'C', 'E', 'E', 'E', 'E', 'I', 'I', 'I', 'I', 'D', 'N', 'O', 'O', 'O', 'O', 'O', 'O', 'U', 'U', 'U', 'U', 'Y', 's', 'a', 'a', 'a', 'a', 'a', 'a', 'ae', 'c', 'e', 'e', 'e', 'e', 'i', 'i', 'i', 'i', 'o', 'n', 'o', 'o', 'o', 'o', 'o', 'o', 'u', 'u', 'u', 'u', 'y', 'y'];
+    $v = str_replace($a, $b, $v);
+    return preg_replace('/[^A-Z0-9\s(),.]/', '', $v);
+}
+
+function map_crime_type($tipo)
+{
+    $tipo = strtoupper(trim($tipo));
+    $mappings = [
+        'PATRIMONIO (DELITO)' => 'CONTRA EL PATRIMONIO',
+        'LIBERTAD (DELITO)' => 'CONTRA LA LIBERTAD',
+        'VIDA, EL CUERPO Y LA SALUD (DELITO)' => 'CONTRA LA VIDA EL CUERPO Y LA SALUD',
+        'VIDA EL CUERPO Y LA SALUD (DELITO)' => 'CONTRA LA VIDA EL CUERPO Y LA SALUD',
+        'SEGURIDAD PUBLICA (DELITO)' => 'CONTRA LA SEGURIDAD PUBLICA',
+        'FAMILIA (DELITO)' => 'CONTRA LA FAMILIA',
+        'ADMINISTRACION PUBLICA (DELITO)' => 'CONTRA LA ADMINISTRACION PUBLICA',
+        'FE PUBLICA (DELITO)' => 'CONTRA LA FE PUBLICA',
+        'TRANQUILIDAD PUBLICA (DELITO)' => 'CONTRA LA TRANQUILIDAD PUBLICA',
+        'AMBIENTALES(DELITO)' => 'CONTRA EL MEDIO AMBIENTE',
+        'AMBIENTALES (DELITO)' => 'CONTRA EL MEDIO AMBIENTE',
+        'HONOR (DELITO)' => 'CONTRA EL HONOR',
+        'DERECHOS INTELECTUALES (DELITO)' => 'CONTRA LOS DERECHOS INTELECTUALES',
+        'ORDEN FINANCIERO Y MONETARIO (DELITO)' => 'CONTRA EL ORDEN FINANCIERO Y MONETARIO',
+        'TRIBUTARIOS (DELITO)' => 'DELITOS TRIBUTARIOS',
+        'PATRIMONIO CULTURAL (DELITO)' => 'CONTRA EL PATRIMONIO CULTURAL',
+        'CONFIANZA Y LA BUENA FE EN LOS NEGOCIOS (DELITO)' => 'CONTRA LA CONFIANZA Y LA BUENA FE EN LOS NEGOCIOS',
+        'ORDEN ECONOMICO (DELITO)' => 'CONTRA EL ORDEN ECONOMICO',
+        'ESTADO Y LA DEFENSA NACIONAL (DELITO)' => 'CONTRA EL ESTADO Y LA DEFENSA NACIONAL',
+        'VOLUNTAD POPULAR (DELITO)' => 'CONTRA LA VOLUNTAD POPULAR',
+        'HUMANIDAD (DELITO)' => 'CONTRA LA HUMANIDAD',
+        'PODERES DEL ESTADO Y EL ORDEN CONSTITUCIONAL (DELITO)' => 'CONTRA LOS PODERES DEL ESTADO Y EL ORDEN CONSTITUCIONAL'
+    ];
+
+    foreach ($mappings as $key => $val) {
+        if (strpos($tipo, $key) !== false || $tipo == $key) {
+            return $val;
+        }
+    }
+    return $tipo;
 }
 
 ?>
@@ -43,7 +78,7 @@ function normalize_str($v)
 
 <head>
     <meta charset="UTF-8">
-    <title>Importador Multi-Fuente v9.2</title>
+    <title>Importador Multi-Fuente v9.4</title>
     <style>
         body {
             font-family: sans-serif;
@@ -96,7 +131,7 @@ function normalize_str($v)
 </head>
 
 <body>
-    <h1>🚀 Importador Multi-Fuente v9.2</h1>
+    <h1>🚀 Importador Multi-Fuente v9.4</h1>
 
     <div id="statusText">Iniciando proceso...</div>
     <div class="progress-container">
@@ -236,6 +271,7 @@ function normalize_str($v)
                             $general = '1.DELITOS';
 
                             // --- NORMALIZACIÓN MPFN ---
+                            $tipo = map_crime_type($tipo);
                             $tipo = normalize_str($tipo);
                             $subtipo = normalize_str($subtipo);
                             $mod = normalize_str($mod);
@@ -257,6 +293,7 @@ function normalize_str($v)
                             $general = '1.DELITOS';
 
                             // --- NORMALIZACIÓN SIDPOL CSV ---
+                            $tipo = map_crime_type($tipo);
                             $tipo = normalize_str($tipo);
                             $subtipo = normalize_str($subtipo);
                             $mod = normalize_str($mod);
@@ -445,6 +482,7 @@ function normalize_str($v)
                                     }
 
                                     // --- V10.0: NORMALIZACIÓN TOTAL ---
+                                    $tipo = map_crime_type($tipo);
                                     $tipo = normalize_str($tipo);
                                     $subtipo = normalize_str($subtipo);
                                     $mod = normalize_str($mod);
