@@ -874,16 +874,51 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
     </div>
 
     <footer
-        style="text-align: center; margin-top: 40px; padding: 20px; color: #666; font-size: 13px; border-top: 1px solid #ddd;">
-        <p><strong>Fuentes de información de acceso público:</strong>
-            <a href="https://observatorio.mininter.gob.pe/" target="_blank"
-                style="color: #555; text-decoration: underline;">SIDPOL (Mininter)</a> |
-            <a href="https://www.datosabiertos.gob.pe/dataset/mpfn-delitos-denunciados" target="_blank"
-                style="color: #555; text-decoration: underline;">MPFN (Ministerio Público)</a>
-        </p>
-        <p>Desarrollado por <strong>Michael Espinoza Coila</strong> asistido por <strong>Antigravity</strong> y
-            <strong>Claude Opus 4.5</strong>.
-        </p>
+        style="margin-top: 50px; padding: 40px 20px; color: #444; background: #fff; border-top: 1px solid #ddd; border-radius: 8px 8px 0 0;">
+        <div
+            style="max-width: 1100px; margin: 0 auto; text-align: left; display: grid; grid-template-columns: 1fr 1fr; gap: 40px;">
+
+            <!-- Columna 1: Disclaimer -->
+            <div style="font-size: 13px; line-height: 1.6;">
+                <h3 style="margin-top:0; color: #d9534f;">⚠️ Disclaimer (Descargo de Responsabilidad)</h3>
+                <p><strong>Aclaración sobre el uso de la información:</strong></p>
+                <ol style="padding-left: 20px;">
+                    <li><strong>Naturaleza de los Datos:</strong> La precisión, integridad y actualidad dependen
+                        exclusivamente de las fuentes originales (SIDPOL y MPFN).</li>
+                    <li><strong>Uso No Oficial:</strong> Este sistema no es un canal oficial de comunicación del
+                        Ministerio del Interior ni del Ministerio Público. Los reportes son referenciales.</li>
+                    <li><strong>Responsabilidad:</strong> El desarrollador no se hace responsable por interpretaciones
+                        erróneas o decisiones basadas en el uso de esta herramienta.</li>
+                    <li><strong>Privacidad:</strong> Se procesan datos estadísticos anonimizados; no contiene
+                        información que identifique personas naturales.</li>
+                </ol>
+            </div>
+
+            <!-- Columna 2: Notas Técnicas / Ayuda -->
+            <div
+                style="font-size: 13px; line-height: 1.6; background: #f8f9fa; padding: 20px; border-left: 4px solid #0056b3;">
+                <h3 style="margin-top:0; color: #0056b3;">💡 Notas de Uso / Ayuda</h3>
+                <p><strong>¿Cifras en cero?</strong> Si un indicador muestra "0" para un año o delito específico:</p>
+                <ul style="padding-left: 20px;">
+                    <li>Cambie la <b>Fuente (Institución)</b> a <i>"MPFN"</i> o <i>"CONSOLIDADO"</i>. Algunos años
+                        antiguos (como 2020) o categorías nuevas pueden no estar catalogados bajo SIDPOL.</li>
+                    <li>Verifique que no haya filtros contradictorios seleccionados simultáneamente.</li>
+                    <li>Utilice la opción <i>"Limpiar"</i> para restablecer los filtros predeterminados.</li>
+                </ul>
+            </div>
+
+        </div>
+
+        <div
+            style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #888;">
+            <p><strong>Fuentes oficiales:</strong>
+                <a href="https://observatorio.mininter.gob.pe/" target="_blank" style="color: #666;">SIDPOL
+                    (Mininter)</a> |
+                <a href="https://www.datosabiertos.gob.pe/dataset/mpfn-delitos-denunciados" target="_blank"
+                    style="color: #666;">MPFN (Ministerio Público)</a>
+            </p>
+            <p>© 2026 Michael Espinoza Coila - Asistido por Inteligencia Artificial (Antigravity & Claude 4.5 Opus).</p>
+        </div>
     </footer>
 
 </body>
