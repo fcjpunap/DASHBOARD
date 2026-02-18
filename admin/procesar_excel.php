@@ -12,6 +12,16 @@ require_once 'db.php';
 ini_set('max_execution_time', 3600);
 ini_set('memory_limit', '1024M');
 
+// --- DESACTIVAR BUFFERING PARA BARRA DE PROGRESO REAL ---
+header('Content-Type: text/html; charset=utf-8');
+header('X-Accel-Buffering: no');
+header('Cache-Control: no-cache');
+@ini_set('zlib.output_compression', 0);
+@ini_set('implicit_flush', 1);
+while (ob_get_level())
+    ob_end_flush();
+ob_implicit_flush(true);
+
 function clean_val($v)
 {
     return trim(str_replace(["\xEF\xBB\xBF", "\r", "\n"], "", $v));
@@ -33,7 +43,7 @@ function normalize_str($v)
 
 <head>
     <meta charset="UTF-8">
-    <title>Importador Multi-Fuente v9.0</title>
+    <title>Importador Multi-Fuente v9.2</title>
     <style>
         body {
             font-family: sans-serif;
@@ -86,7 +96,7 @@ function normalize_str($v)
 </head>
 
 <body>
-    <h1>🚀 Importador Multi-Fuente v9.1</h1>
+    <h1>🚀 Importador Multi-Fuente v9.2</h1>
 
     <div id="statusText">Iniciando proceso...</div>
     <div class="progress-container">
@@ -112,6 +122,9 @@ function normalize_str($v)
 
     <div class="log" id="logBox">
         <?php
+        // Padding para forzar al navegador a renderizar (algunos esperan 1KB o 2KB)
+        echo str_repeat(" ", 1024);
+        flush();
         $tempFile = null;
         $fileToProcess = null;
         $originalName = '';
@@ -168,8 +181,20 @@ function normalize_str($v)
                     echo "🔍 Fuente detectada: $fuente\n";
 
                     $count = 0;
+                    $rowCountTotal = 0;
+
+                    // --- DETECCIÓN DE VIOLENCIA / NIÑO (Basado en Cabeceras) ---
+                    $isViolenciaDoc = false;
+                    $allHeadersStr = implode(" ", array_keys($header));
+                    if (strpos($allHeadersStr, 'VIOLENCIA') !== false || strpos($allHeadersStr, 'AGRESOR') !== false || strpos($allHeadersStr, 'VICTIMA') !== false) {
+                        $isViolenciaDoc = true;
+                    }
+
                     while (($rowData = fgetcsv($handle, 0, ",")) !== FALSE) {
-                        $row = array_combine($header, $rowData);
+                        $rowCountTotal++;
+                        $row = @array_combine($header, $rowData);
+                        if (!$row)
+                            continue;
 
                         if ($isMPFN) {
                             $anioVal = (int) $row['anio_denuncia'];
@@ -218,13 +243,23 @@ function normalize_str($v)
                             $dpto = normalize_str($dpto);
                         }
 
+                        // --- CATEGORÍA ROBUSTA ---
+                        $catText = strtoupper(($row['ES_DELITO_X'] ?? '') . " " . ($row['ES_DELITO_GENERAL'] ?? '') . " " . ($row['TIPO_GENERAL'] ?? '') . " " . ($row['CATEGORIA'] ?? '') . " " . $tipo . " " . $mod);
+                        if ($isViolenciaDoc || strpos($catText, 'VIOLENCIA') !== false || strpos($catText, '4.') !== false) {
+                            $general = '4.VIOLENCIA';
+                        } else {
+                            $general = $isMPFN ? '1.DELITOS' : ($row['es_delito_general'] ?? '1.DELITOS');
+                        }
+
                         $hash = md5($fuente . "_" . $anioVal . "_" . $mes . "_" . $ubigeo . "_" . $tipo . "_" . $mod . "_" . $cant);
                         $stmt->execute([$fuente, $anioVal, $mes, $ubigeo, $dpto, $prov, $dist, $tipo, $subtipo, $mod, $general, $cant, $hash]);
 
                         if ($stmt->rowCount() > 0)
                             $count++;
-                        if ($count % 1000 == 0) {
-                            echo ".";
+
+                        if ($rowCountTotal % 1000 == 0) {
+                            $prog = min(95, ($rowCountTotal / 5000) * 10); // Estimación simple para CSV
+                            echo "<script>updateProgress($prog, 'Procesando CSV - Fila $rowCountTotal...'); scrollLog();</script>";
                             flush();
                         }
                     }
