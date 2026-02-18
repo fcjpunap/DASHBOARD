@@ -510,7 +510,7 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
 
         async function updateProvs(triggerDists = true) {
             const dpto = document.getElementById('filtro_dpto')?.value || '';
-            if (!dpto || dpto === 'TOTAL PERU') {
+            if (!dpto) {
                 updateSelect('filtro_prov', [], sel.prov);
                 if (triggerDists) updateDists();
                 return;
@@ -523,7 +523,7 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
         async function updateDists() {
             const dpto = document.getElementById('filtro_dpto')?.value || '';
             const prov = document.getElementById('filtro_prov')?.value || 'todos';
-            if (!dpto || dpto === 'TOTAL PERU') {
+            if (!dpto || (dpto === 'TOTAL PERU' && prov === 'todos')) {
                 updateSelect('filtro_dist', [], sel.dist);
                 return;
             }
@@ -536,21 +536,21 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
         // --- Selectores Geográficos de COMPARACIÓN (usan el dpto de comparación) ---
         async function updateCompProvs(triggerDists = true) {
             const dptoComp = document.getElementById('filtro_comparar')?.value || 'ninguno';
-            if (dptoComp === 'ninguno' || dptoComp === 'TOTAL PERU') {
+            if (dptoComp === 'ninguno') {
                 updateSelect('filtro_comp_prov', [], sel.comp_prov, 'Ninguno', 'ninguno');
                 if (triggerDists) updateCompDists();
                 return;
             }
             const provs = await fetchJSON(`admin/api_geo.php?action=provincias&dpto=${encodeURIComponent(dptoComp)}`);
             // Cambiamos "Ninguno" por "Todo el Departamento" para mayor claridad
-            updateSelect('filtro_comp_prov', provs, sel.comp_prov, 'Todo el Departamento', 'ninguno');
+            updateSelect('filtro_comp_prov', provs, sel.comp_prov, (dptoComp === 'TOTAL PERU' ? 'Todas las Provincias' : 'Todo el Departamento'), 'ninguno');
             if (triggerDists) await updateCompDists();
         }
 
         async function updateCompDists() {
             const dptoComp = document.getElementById('filtro_comparar')?.value || 'ninguno';
             const provComp = document.getElementById('filtro_comp_prov')?.value || 'todos';
-            if (dptoComp === 'ninguno' || dptoComp === 'TOTAL PERU') {
+            if (dptoComp === 'ninguno' || (dptoComp === 'TOTAL PERU' && (provComp === 'todos' || provComp === 'ninguno'))) {
                 updateSelect('filtro_comp_dist', [], sel.comp_dist, 'Ninguno', 'ninguno');
                 return;
             }

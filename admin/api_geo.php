@@ -12,7 +12,9 @@ switch ($action) {
     case 'provincias':
         $dpto = $_GET['dpto'] ?? '';
         if (empty($dpto) || $dpto === 'TOTAL PERU') {
-            echo json_encode([]);
+            // Si es TOTAL PERU, devolvemos TODAS las provincias únicas del país
+            $stmt = $pdo->query("SELECT DISTINCT prov_hecho FROM sidpol_hechos WHERE prov_hecho != '' ORDER BY prov_hecho");
+            echo json_encode($stmt->fetchAll(PDO::FETCH_COLUMN));
             break;
         }
         $stmt = $pdo->prepare("SELECT DISTINCT prov_hecho FROM sidpol_hechos WHERE dpto_hecho = ? AND prov_hecho != '' ORDER BY prov_hecho");
@@ -23,10 +25,20 @@ switch ($action) {
     case 'distritos':
         $dpto = $_GET['dpto'] ?? '';
         $prov = $_GET['prov'] ?? '';
+
+        // Si no hay departamento o es TOTAL PERU, pero HAY una provincia, buscamos los distritos de esa provincia
+        if ((empty($dpto) || $dpto === 'TOTAL PERU') && (!empty($prov) && $prov !== 'todos')) {
+            $stmt = $pdo->prepare("SELECT DISTINCT dist_hecho FROM sidpol_hechos WHERE prov_hecho = ? AND dist_hecho != '' ORDER BY dist_hecho");
+            $stmt->execute([$prov]);
+            echo json_encode($stmt->fetchAll(PDO::FETCH_COLUMN));
+            break;
+        }
+
         if (empty($dpto) || $dpto === 'TOTAL PERU') {
             echo json_encode([]);
             break;
         }
+
         $sql = "SELECT DISTINCT dist_hecho FROM sidpol_hechos WHERE dpto_hecho = ? AND dist_hecho != ''";
         $params = [$dpto];
         if (!empty($prov) && $prov !== 'todos') {
