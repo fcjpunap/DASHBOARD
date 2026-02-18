@@ -25,7 +25,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
 <head>
     <meta charset="UTF-8">
-    <title>Acceso Admin SIDPOL</title>
+    <title>Acceso Admin Dashboard</title>
     <style>
         body {
             font-family: sans-serif;
@@ -85,7 +85,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
 <body>
     <div class="login-box">
-        <h2>🔐 Admin SIDPOL</h2>
+        <h2>🔐 Admin Dashboard</h2>
         <?php if (isset($error)) {
             echo "<p class='error'>$error</p>";
         } ?>
