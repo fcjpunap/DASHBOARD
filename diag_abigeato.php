@@ -2,27 +2,33 @@
 require_once 'admin/db.php';
 header('Content-Type: text/plain');
 
-echo "Diagnóstico profundo ABIGEATO 2020:\n";
+echo "Diagnóstico PROFUNDO ABIGEATO 2020 (v2):\n";
 
-$query = "SELECT tipo_delito, sub_tipo_delito, modalidad_delito, cantidad, HEX(tipo_delito) as tipo_hex, HEX(sub_tipo_delito) as sub_hex 
+$query = "SELECT fuente, es_delito_general, tipo_delito, sub_tipo_delito, modalidad_delito, SUM(cantidad) as total 
           FROM sidpol_hechos 
-          WHERE anio = 2020 AND (sub_tipo_delito LIKE '%ABIGEATO%' OR tipo_delito LIKE '%ABIGEATO%')
-          LIMIT 5";
+          WHERE anio = 2020 AND sub_tipo_delito = 'ABIGEATO'
+          GROUP BY fuente, es_delito_general, tipo_delito, sub_tipo_delito, modalidad_delito";
 
 $stmt = $pdo->query($query);
-while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
-    echo "-------------------\n";
-    echo "Tipo: [{$r['tipo_delito']}] (Hex: {$r['tipo_hex']})\n";
-    echo "Subtipo: [{$r['sub_tipo_delito']}] (Hex: {$r['sub_hex']})\n";
-    echo "Mod: {$r['modalidad_delito']}\n";
-    echo "Cant: {$r['cantidad']}\n";
+$results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+if (empty($results)) {
+    echo "No hay registros con subtipo EXACTO 'ABIGEATO' en 2020.\n";
+} else {
+    foreach ($results as $r) {
+        echo "Fuente: [{$r['fuente']}] | Gen: [{$r['es_delito_general']}] | Tipo: [{$r['tipo_delito']}] | Sub: [{$r['sub_tipo_delito']}] | Total: {$r['total']}\n";
+    }
 }
 
-echo "\nChequeo de filtros específicos:\n";
-$stmt2 = $pdo->prepare("SELECT SUM(cantidad) FROM sidpol_hechos WHERE anio = 2020 AND tipo_delito = ? AND sub_tipo_delito = ?");
-$stmt2->execute(['CONTRA EL PATRIMONIO', 'ABIGEATO']);
-echo "Búsqueda exacta (CONTRA EL PATRIMONIO + ABIGEATO): " . ($stmt2->fetchColumn() ?: 0) . "\n";
+echo "\nConteo con filtros de Dashboard:\n";
+$f_fuente = 'SIDPOL';
+$f_anio = 2020;
+$f_gen = '1.DELITOS';
+$f_tipo = 'CONTRA EL PATRIMONIO';
+$f_sub = 'ABIGEATO';
 
-$stmt3 = $pdo->prepare("SELECT SUM(cantidad) FROM sidpol_hechos WHERE anio = 2020 AND tipo_delito LIKE ? AND sub_tipo_delito LIKE ?");
-$stmt3->execute(['%PATRIMONIO%', '%ABIGEATO%']);
-echo "Búsqueda parcial (%PATRIMONIO% + %ABIGEATO%): " . ($stmt3->fetchColumn() ?: 0) . "\n";
+$q2 = "SELECT SUM(cantidad) FROM sidpol_hechos 
+       WHERE fuente = ? AND anio = ? AND es_delito_general = ? AND tipo_delito = ? AND sub_tipo_delito = ?";
+$st2 = $pdo->prepare($q2);
+$st2->execute([$f_fuente, $f_anio, $f_gen, $f_tipo, $f_sub]);
+echo "Resultado con filtros exactos: " . ($st2->fetchColumn() ?: 0) . "\n";
