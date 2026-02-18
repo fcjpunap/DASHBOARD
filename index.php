@@ -31,7 +31,7 @@ try {
     // Última actualización (Dinámico)
     $latest_res = $pdo->query("SELECT anio, mes FROM sidpol_hechos ORDER BY anio DESC, mes DESC LIMIT 1")->fetch();
     $meses_nombres_f = [0 => 'Diciembre', 1 => 'Enero', 2 => 'Febrero', 3 => 'Marzo', 4 => 'Abril', 5 => 'Mayo', 6 => 'Junio', 7 => 'Julio', 8 => 'Agosto', 9 => 'Septiembre', 10 => 'Octubre', 11 => 'Noviembre', 12 => 'Diciembre'];
-    $ultima_act = ($meses_nombres_f[(int)($latest_res['mes'] ?? 1)]) . " de " . ($latest_res['anio'] ?? '2025');
+    $ultima_act = ($meses_nombres_f[(int) ($latest_res['mes'] ?? 1)]) . " de " . ($latest_res['anio'] ?? '2025');
 
     // PARA LOS SELECTORES DEPENDIENTES (Tipo > Subtipo > Modalidad)
     // Traemos todo el catálogo DISTINTO para armar el mapa JS.
@@ -906,8 +906,9 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
                 <p><strong>¿Cifras en cero?</strong> Si un indicador muestra "0" para un año o delito específico:</p>
                 <ul style="padding-left: 20px;">
                     <li>Cambie la <b>Fuente (Institución)</b> a <i>"MPFN"</i> o <i>"CONSOLIDADO"</i>. Algunos años
-                        antiguos (como 2020) o categorías nuevas pueden no estar catalogados bajo SIDPOL. Precise que en
-                        la fuente <b>SIDPOL</b> hay más información detallada de los delitos desde el <b>2024 en adelante</b>.</li>
+                        antiguos (como 2020) o categorías nuevas pueden no estar catalogados bajo SIDPOL. En la fuente
+                        <b>SIDPOL</b> hay más información detallada de los delitos desde el <b>2024 en adelante</b>.
+                    </li>
                     <li>Verifique que no haya filtros contradictorios seleccionados simultáneamente.</li>
                     <li>Utilice la opción <i>"Limpiar"</i> para restablecer los filtros predeterminados.</li>
                 </ul>
@@ -924,7 +925,8 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
                     style="color: #666;">MPFN (Ministerio Público)</a>
             </p>
             <p><strong>Actualizado hasta:</strong> <?= $ultima_act ?></p>
-            <p>© 2026 Michael Espinoza Coila - Asistido por Inteligencia Artificial (Gemini 3 Flash y Pro & Claude 4.5 Opus).</p>
+            <p>© 2026 Michael Espinoza Coila - Asistido por Inteligencia Artificial (Gemini 3 Flash y Pro & Claude 4.5
+                Opus).</p>
         </div>
     </footer>
 
