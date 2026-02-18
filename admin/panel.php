@@ -149,9 +149,9 @@ if (!isset($_SESSION['admin_logged_in'])) {
         <hr>
         <h3>Instrucciones:</h3>
         <ul style="font-size: 14px; color: #555; padding-left: 20px;">
-            <li><b>SIDPOL (Policía):</b> Sube el excel (.xlsx) oficial del Mininter.</li>
+            <li><b>SIDPOL (Policía):</b> Sube el excel (.xlsx) oficial del Mininter (Denuncias o Violencia).</li>
             <li><b>MPFN (Fiscalía):</b> Pega la URL del CSV de Datos Abiertos.</li>
-            <li>El sistema detectará la fuente automáticamente.</li>
+            <li>El sistema detectará la fuente y el tipo de datos (Delitos/Violencia) automáticamente.</li>
             <li>Se ignorarán registros duplicados mediante el hash de contenido.</li>
         </ul>
     </div>

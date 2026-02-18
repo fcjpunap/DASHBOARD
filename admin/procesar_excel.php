@@ -45,18 +45,71 @@ function normalize_str($v)
             background: #000;
             color: #0ef;
             padding: 15px;
-            height: 500px;
+            height: 400px;
             overflow-y: auto;
             border-radius: 8px;
             font-family: monospace;
             font-size: 12px;
             white-space: pre-wrap;
+            margin-top: 10px;
+        }
+
+        .progress-container {
+            width: 100%;
+            background: #ddd;
+            border-radius: 20px;
+            height: 25px;
+            margin: 20px 0;
+            overflow: hidden;
+            border: 1px solid #ccc;
+        }
+
+        #progressBar {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #28a745, #218838);
+            transition: width 0.3s ease;
+            text-align: center;
+            line-height: 25px;
+            color: white;
+            font-weight: bold;
+            font-size: 13px;
+        }
+
+        #statusText {
+            font-size: 14px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
         }
     </style>
 </head>
 
 <body>
-    <h1>🚀 Importador Multi-Fuente v9.0 (SIDPOL & MPFN)</h1>
+    <h1>🚀 Importador Multi-Fuente v9.1</h1>
+
+    <div id="statusText">Iniciando proceso...</div>
+    <div class="progress-container">
+        <div id="progressBar">0%</div>
+    </div>
+
+    <script>
+        const logBox = document.getElementById('logBox');
+        const progressBar = document.getElementById('progressBar');
+        const statusText = document.getElementById('statusText');
+
+        function updateProgress(percent, label) {
+            percent = Math.min(100, Math.max(0, Math.round(percent)));
+            progressBar.style.width = percent + '%';
+            progressBar.innerText = percent + '%';
+            if (label) statusText.innerText = label;
+        }
+
+        function scrollLog() {
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+    </script>
+
     <div class="log" id="logBox">
         <?php
         $tempFile = null;
@@ -243,10 +296,17 @@ function normalize_str($v)
                                         $row[$v] = $rowData[$k] ?? '';
 
                                     // --- AÑO ---
-                                    $anioVal = $row['ANIO'] ?: ($row['AÑO'] ?: '2025');
+                                    $anioVal = $row['ANIO'] ?: ($row['AÑO'] ?: ($row['AÑO_DENUNCIA'] ?? '2025'));
                                     $anioVal = preg_replace('/[^0-9]/', '', (string) $anioVal);
                                     if (empty($anioVal) || (int) $anioVal < 2000)
                                         $anioVal = 2025;
+
+                                    // --- DETECCIÓN DE VIOLENCIA / NIÑO (Basado en Cabeceras) ---
+                                    $isViolenciaDoc = false;
+                                    $allHeadersStr = implode(" ", array_keys($row));
+                                    if (strpos($allHeadersStr, 'VIOLENCIA') !== false || strpos($allHeadersStr, 'AGRESOR') !== false || strpos($allHeadersStr, 'VICTIMA') !== false) {
+                                        $isViolenciaDoc = true;
+                                    }
 
                                     // --- V11.0: EVITAR DUPLICADOS Y CAPTURAR FALTAS/VIOLENCIA (Mejorado) ---
                                     if ($i == 5 && (int) $anioVal >= 2025) {
@@ -313,10 +373,10 @@ function normalize_str($v)
                                     // --- MAPEADO DE CATEGORÍA GENERAL ROBUSTO ---
                                     $catText = strtoupper(($row['ES_DELITO_X'] ?? '') . " " . ($row['ES_DELITO_GENERAL'] ?? '') . " " . ($row['TIPO_GENERAL'] ?? '') . " " . ($row['CATEGORIA'] ?? '') . " " . $tipo . " " . $mod);
 
-                                    if (strpos($catText, 'FALTA') !== false || strpos($catText, '2.') !== false) {
-                                        $general = '2.FALTAS';
-                                    } elseif (strpos($catText, 'VIOLENCIA') !== false || strpos($catText, '4.') !== false) {
+                                    if ($isViolenciaDoc || strpos($catText, 'VIOLENCIA') !== false || strpos($catText, '4.') !== false) {
                                         $general = '4.VIOLENCIA';
+                                    } elseif (strpos($catText, 'FALTA') !== false || strpos($catText, '2.') !== false) {
+                                        $general = '2.FALTAS';
                                     } elseif (strpos($catText, 'NIÑO') !== false || strpos($catText, '3.') !== false) {
                                         $general = '3. NIÑOS Y ADOLESCENTES';
                                     } elseif (strpos($catText, 'DELITO') !== false || strpos($catText, '1.') !== false) {
@@ -358,8 +418,14 @@ function normalize_str($v)
                                     ]);
                                     if ($stmt->rowCount() > 0)
                                         $count++;
-                                    if ($count % 5000 == 0) {
-                                        echo ".";
+
+                                    if ($rowNum % 500 == 0) {
+                                        // Estimar progreso (basado en que las hojas suelen tener ~50-80k filas max)
+                                        $baseProgress = (array_search($i, $permitidas) / count($permitidas)) * 100;
+                                        $subProgress = min(15, ($rowNum / 2000));
+                                        $totalProgress = $baseProgress + $subProgress;
+
+                                        echo "<script>updateProgress($totalProgress, 'Procesando Hoja #$i - Fila $rowNum...'); scrollLog();</script>";
                                         flush();
                                     }
                                 }
@@ -369,6 +435,7 @@ function normalize_str($v)
                         echo " OK ($count)\n";
                         $totalGlobal += $count;
                     }
+                    echo "<script>updateProgress(100, 'Importación Finalizada');</script>";
                     $zip->close();
                 }
             }
