@@ -68,7 +68,7 @@ $filtros = [
     'tipo_delito' => $_GET['filtro_tipo_delito'] ?? 'todos',
     'subtipo_delito' => $_GET['filtro_subtipo_delito'] ?? 'todos',
     'modalidad_delito' => $_GET['filtro_modalidad_delito'] ?? 'todos',
-    'fuente' => $_GET['filtro_fuente'] ?? 'todos',
+    'fuente' => $_GET['filtro_fuente'] ?? 'SIDPOL',
     'comp_prov' => $_GET['filtro_comp_prov'] ?? 'ninguno',
     'comp_dist' => $_GET['filtro_comp_dist'] ?? 'ninguno',
 ];
@@ -598,7 +598,7 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
         if ($filtros['dist'] != 'todos')
             $titulo_ubicacion .= ' / ' . $filtros['dist'];
         ?>
-        <h1>📈 Dashboard SIDPOL <small>Estadísticas de <?= $titulo_ubicacion ?></small></h1>
+        <h1>📈 Dashboard sobre denuncias <small>Estadísticas de <?= $titulo_ubicacion ?></small></h1>
 
         <div class="filters">
             <form method="GET">
@@ -882,7 +882,8 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
                 style="color: #555; text-decoration: underline;">MPFN (Ministerio Público)</a>
         </p>
         <p>Desarrollado por <strong>Michael Espinoza Coila</strong> asistido por <strong>Antigravity</strong> y
-            <strong>Claude Opus 4.5</strong>.</p>
+            <strong>Claude Opus 4.5</strong>.
+        </p>
     </footer>
 
 </body>
