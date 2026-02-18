@@ -10,6 +10,8 @@
 !database_schema.sql
 !.gitignore
 !htaccess
+!README.md
+!LICENSE
 
 # Excluir específicamente los archivos de prueba y diagnóstico
 admin/check_*.php
