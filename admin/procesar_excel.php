@@ -122,9 +122,10 @@ function normalize_str($v)
 
     <div class="log" id="logBox">
         <?php
-        // Padding para forzar al navegador a renderizar (algunos esperan 1KB o 2KB)
-        echo str_repeat(" ", 1024);
+        // Padding invisible para forzar al navegador a renderizar (algunos esperan 4KB)
+        echo "<!-- " . str_repeat("-", 4096) . " -->\n";
         flush();
+        @ob_flush();
         $tempFile = null;
         $fileToProcess = null;
         $originalName = '';
@@ -140,7 +141,24 @@ function normalize_str($v)
             curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
             curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
             curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0');
-            curl_setopt($ch, CURLOPT_TIMEOUT, 300);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 600); // 10 min max download
+        
+            // --- PROGRESO DE DESCARGA REAL-TIME ---
+            curl_setopt($ch, CURLOPT_NOPROGRESS, false);
+            curl_setopt($ch, CURLOPT_PROGRESSFUNCTION, function ($resource, $dltotal, $dlnow, $ultotal, $ulnow) {
+                static $lastPercent = 0;
+                if ($dltotal > 0) {
+                    $percent = ($dlnow / $dltotal) * 100 * 0.4; // Descarga es el primer 40%
+                    if (round($percent) > $lastPercent) {
+                        $mb = round($dlnow / 1024 / 1024, 1);
+                        echo "<script>updateProgress($percent, 'Descargando... ($mb MB)'); scrollLog();</script>";
+                        flush();
+                        @ob_flush();
+                        $lastPercent = round($percent);
+                    }
+                }
+            });
+
             $fileData = curl_exec($ch);
             curl_close($ch);
 
@@ -164,6 +182,8 @@ function normalize_str($v)
             $sql = "INSERT IGNORE INTO sidpol_hechos (fuente, anio, mes, ubigeo_hecho, dpto_hecho, prov_hecho, dist_hecho, tipo_delito, sub_tipo_delito, modalidaD_delito, es_delito_general, cantidad, hash_unico) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             $stmt = $pdo->prepare($sql);
             $totalGlobal = 0;
+            $startProgress = !empty($_POST['url_excel']) ? 40 : 0; // Si es URL, ya hubo 40% de descarga
+            $remainingRange = 100 - $startProgress;
 
             if ($isCSV) {
                 echo "📄 Procesando archivo CSV... \n";
@@ -185,7 +205,7 @@ function normalize_str($v)
 
                     // --- DETECCIÓN DE VIOLENCIA / NIÑO (Basado en Cabeceras) ---
                     $isViolenciaDoc = false;
-                    $allHeadersStr = implode(" ", array_keys($header));
+                    $allHeadersStr = implode(" ", $header); // Corregido: usar valores, no llaves
                     if (strpos($allHeadersStr, 'VIOLENCIA') !== false || strpos($allHeadersStr, 'AGRESOR') !== false || strpos($allHeadersStr, 'VICTIMA') !== false) {
                         $isViolenciaDoc = true;
                     }
@@ -257,16 +277,20 @@ function normalize_str($v)
                         if ($stmt->rowCount() > 0)
                             $count++;
 
-                        if ($rowCountTotal % 1000 == 0) {
-                            $prog = min(95, ($rowCountTotal / 5000) * 10); // Estimación simple para CSV
-                            echo "<script>updateProgress($prog, 'Procesando CSV - Fila $rowCountTotal...'); scrollLog();</script>";
+                        if ($rowCountTotal % 2000 == 0) {
+                            $subProg = min($remainingRange - 2, ($rowCountTotal / 80000) * $remainingRange);
+                            $totalProg = $startProgress + $subProg;
+                            echo "<script>updateProgress($totalProg, 'Procesando CSV - Fila $rowCountTotal...'); scrollLog();</script>";
                             flush();
+                            @ob_flush();
+                            usleep(1000);
                         }
                     }
                     fclose($handle);
-                    echo " OK ($count)\n";
-                    $totalGlobal = $count;
                 }
+                echo "<script>updateProgress(100, 'Importación CSV Finalizada');</script>";
+                echo " OK ($count)\n";
+                $totalGlobal += $count;
             } else {
                 // --- PROCESADOR EXCEL (SIDPOL) ---
                 $zip = new ZipArchive;
@@ -433,8 +457,8 @@ function normalize_str($v)
                                     $prov = $row['PROV_HECHO'] ?: '';
                                     $dist = $row['DIST_HECHO'] ?: '';
 
-                                    // --- HASH (V10.0: SIN hoja para permitir deduplicación entre hojas) ---
-                                    $hash = md5($fuente . "_" . $anioVal . "_" . $mes . "_" . $ubigeo . "_" . $dist . "_" . $tipo . "_" . $mod);
+                                    // --- HASH (Unificado v9.3 para permitir deduplicación entre hojas y fuentes) ---
+                                    $hash = md5($fuente . "_" . $anioVal . "_" . $mes . "_" . $ubigeo . "_" . $tipo . "_" . $mod . "_" . $cant);
 
                                     $stmt->execute([
                                         $fuente,
@@ -455,13 +479,17 @@ function normalize_str($v)
                                         $count++;
 
                                     if ($rowNum % 500 == 0) {
-                                        // Estimar progreso (basado en que las hojas suelen tener ~50-80k filas max)
-                                        $baseProgress = (array_search($i, $permitidas) / count($permitidas)) * 100;
-                                        $subProgress = min(15, ($rowNum / 2000));
-                                        $totalProgress = $baseProgress + $subProgress;
+                                        // Estimar progreso
+                                        $sheetWeight = 1 / count($permitidas);
+                                        $sheetIndex = array_search($i, $permitidas);
+                                        $baseSheetProg = ($sheetIndex * $sheetWeight) * $remainingRange;
+                                        $innerSheetProg = min($sheetWeight * $remainingRange * 0.9, ($rowNum / 3000) * $remainingRange);
+
+                                        $totalProgress = $startProgress + $baseSheetProg + $innerSheetProg;
 
                                         echo "<script>updateProgress($totalProgress, 'Procesando Hoja #$i - Fila $rowNum...'); scrollLog();</script>";
                                         flush();
+                                        @ob_flush();
                                     }
                                 }
                             }
