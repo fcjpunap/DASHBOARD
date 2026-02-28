@@ -1,51 +1,51 @@
-# Dashboard de Denuncias (SIDPOL & MPFN)
+# Dashboard de Criminalidad SIDPOL & MPFN (Future Ready v5.0)
 
-Este sistema es una herramienta avanzada de visualización y análisis de estadísticas de criminalidad en el Perú. Permite consolidar y filtrar datos provenientes de las principales fuentes oficiales del país para facilitar la toma de decisiones basada en evidencia.
+Este sistema es una herramienta avanzada de Business Intelligence (BI) para la visualización y análisis de estadísticas de criminalidad en el Perú. Permite consolidar datos de fuentes oficiales como SIDPOL (Policía) y MPFN (Fiscalía) en un tablero dinámico e interactivo.
+
+## 🚀 Innovaciones Técnicas (Versión 2026+)
+
+Esta versión incluye mejoras críticas para la integridad de los datos y la adaptabilidad del sistema:
+
+### 📅 Arquitectura "Future-Ready"
+El importador ya no depende de años fijos. Mediante una lógica de **Ventana Rodante**, el sistema detecta automáticamente el año más reciente en los archivos de SIDPOL (ej. 2026, 2027) y reconfigura internamente las reglas de importación de las Hojas 5, 6 y 7 del Excel sin necesidad de intervención manual o cambios en el código.
+
+### 🧹 Limpieza Inteligente (Smart Clean)
+Se ha implementado una herramienta de deduplicación robusta que:
+- **Normaliza Nombres:** Elimina espacios en blanco residuales y diferencias de mayúsculas/minúsculas (ej. "LIMA " vs "lima").
+- **Detección de Traslapes:** Identifica si un registro se encuentra duplicado entre diferentes hojas del mismo Excel (problema común en SIDPOL donde los años a veces se solapan entre hojas históricas y actuales).
+- **Consistencia de Cifras:** Al eliminar estas redundancias, garantiza que el KPI total coincida exactamente con las cifras oficiales del Mininter.
+
+### 🛡️ Hash Único Evolucionado
+El sistema de deduplicación por Hash MD5 ha sido actualizado para ignorar la columna `cantidad` en su cálculo. Esto permite que, si el Mininter actualiza el conteo de denuncias de un mes ya importado, el sistema actualice el valor (`ON DUPLICATE KEY UPDATE`) en lugar de crear una fila duplicada.
 
 ## 📊 Características del Sistema
 
-- **Consolidación Multifuente:** Importación y procesamiento automático de datos de SIDPOL (Policía Nacional) y MPFN (Ministerio Público).
-- **KPIs Dinámicos:** Visualización en tiempo real de delitos totales, violencia, faltas y tendencias.
-- **Análisis Geográfico:** Filtros detallados por departamento, provincia y distrito.
-- **Composición del Delito:** Gráficos detallados sobre la naturaleza de las denuncias registradas.
-- **Ranking Nacional:** Comparativa interactiva entre regiones.
-- **Deduplicación Inteligente:** Sistema basado en hashes MD5 para evitar entradas duplicadas entre diferentes hojas de cálculo o fuentes.
+- **Consolidación Multifuente:** Procesamiento de archivos `.xlsx` (SIDPOL) y `.csv` (MPFN/IGF).
+- **Análisis de Violencia Detallado:** Importación especializada para la base de Violencia Mujer/IGF con limpieza automática de registros genéricos para evitar duplicidad.
+- **KPIs Dinámicos:** Seguimiento de Delitos, Faltas, Violencia y Niños.
+- **Filtros Geográficos:** Desglose completo desde nivel nacional hasta distrital.
+- **Detección de Fuente Automática:** El sistema identifica la estructura del archivo (Policía vs Fiscalía) al momento de la carga.
 
 ## 📂 Fuentes de Datos
 
-El sistema se alimenta de bases de datos de acceso público y gobierno abierto:
-
-1.  **SIDPOL (Mininter):** Datos sobre hechos delictivos basados en denuncias policiales. [Portal Observatorio Mininter](https://observatorio.mininter.gob.pe/).
-2.  **MPFN (Ministerio Público):** Datos abiertos sobre delitos denunciados ante las fiscalías. [Portal de Datos Abiertos del Perú](https://www.datosabiertos.gob.pe/dataset/mpfn-delitos-denunciados).
-
----
-
-## ⚠️ Disclaimer (Descargo de Responsabilidad)
-
-**Aclaración sobre el uso de la información:**
-1.  **Naturaleza de los Datos:** Este dashboard es una herramienta de visualización de datos estadísticos. La precisión, integridad y actualidad de la información dependen exclusivamente de las fuentes originales (SIDPOL y MPFN).
-2.  **Uso No Oficial:** Aunque utiliza fuentes públicas oficiales, este sistema no es un canal oficial de comunicación del Ministerio del Interior ni del Ministerio Público. Los reportes generados deben considerarse referenciales.
-3.  **Responsabilidad:** El desarrollador y los colaboradores no se hacen responsables por decisiones tomadas, interpretaciones erróneas o acciones legales basadas en el uso de esta herramienta.
-4.  **Privacidad:** El sistema solo procesa datos estadísticos anonimizados según lo provisto en los portales de datos abiertos; no contiene información que permita identificar personas naturales.
-
----
+El sistema se alimenta de:
+1.  **SIDPOL (Mininter):** Datos sobre hechos delictivos del [Observatorio Mininter](https://observatorio.mininter.gob.pe/).
+2.  **MPFN (Ministerio Público):** Datos abiertos sobre delitos denunciados ante las fiscalías.
 
 ## 🛠️ Requisitos e Instalación
 
-- **Backend:** PHP 7.4 o superior.
-- **Base de Datos:** MySQL / MariaDB (InnoDB).
-- **Extensiones PHP:** PDO_MySQL, XMLReader, ZipArchive, mbstring.
+- **Entorno:** PHP 7.4+ | MySQL/MariaDB (InnoDB).
+- **Extensiones:** XMLReader, ZipArchive, PDO_MySQL, mbstring.
 
-### Instalación rápida:
-
-1.  Clonar el repositorio.
-2.  Configurar la conexión en `admin/db.php`.
-3.  Importar el esquema inicial de la base de datos.
-4.  Acceder al panel `/admin/` para iniciar la importación de datos SIDPOL/MPFN.
-
-## 📄 Licencia
-
-Este proyecto está bajo la licencia **GNU GPL v3**. Consulte el archivo `LICENSE` para más detalles.
+### Instalación:
+1. Configurar credenciales en `admin/db.php`.
+2. Importar `database_schema.sql` en su servidor MariaDB.
+3. El primer acceso al `/admin/panel.php` permitirá limpiar y realizar la primera importación masiva.
 
 ---
-© 2026 Michael Espinoza Coila - Asistido por inteligencia artificial (Antigravity & Claude).
+
+## ⚠️ Disclaimer
+Este dashboard es una herramienta de visualización basada en datos estadísticos oficiales. Los reportes generados son referenciales y dependen de la actualización de los portales de Gobierno Abierto.
+
+---
+© 2026 Michael Espinoza Coila - Optimizado para el manejo de grandes volúmenes de datos y registros históricos de criminalidad.
