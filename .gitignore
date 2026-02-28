@@ -64,6 +64,7 @@ admin/sum_*
 admin/test_*
 admin/upgrade_db.php
 admin/verificar_importacion.php
+admin/diagnostico_columnas.php
 admin/conteo_final*
 admin/smart_clean.py
 
