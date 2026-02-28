@@ -1,6 +1,6 @@
 <?php
 /**
- * PROCESADOR MULTI-FUENTE V9.0 (SIDPOL + MPFN)
+ * PROCESADOR MULTI-FUENTE V14.1 (SIDPOL + MPFN)
  * Soporta archivos .xlsx (SIDPOL) y .csv (MPFN) vía URL o subida.
  */
 session_start();
@@ -9,7 +9,8 @@ if (!isset($_SESSION['admin_logged_in'])) {
     exit;
 }
 require_once 'db.php';
-ini_set('max_execution_time', 3600);
+ini_set('max_execution_time', 0);
+set_time_limit(0);
 ini_set('memory_limit', '1024M');
 
 // --- DESACTIVAR BUFFERING PARA BARRA DE PROGRESO REAL ---
@@ -72,13 +73,63 @@ function map_crime_type($tipo)
     return $tipo;
 }
 
+// --- FUNCIÓN PARA SEGUIMIENTO DE PROGRESO AJAX ---
+$job_id = $_POST['job_id'] ?? ($_GET['job_id'] ?? null);
+
+function writeProgress($jobId, $percent, $msg, $log = null)
+{
+    if (!$jobId)
+        return;
+    $file = __DIR__ . "/temp/import_$jobId.json";
+
+    // Leer estado actual para no perder logs anteriores
+    $currentData = [];
+    if (file_exists($file)) {
+        $currentData = json_decode(file_get_contents($file), true) ?: [];
+    }
+
+    $fullLog = $currentData['full_log'] ?? "";
+    if ($log) {
+        $fullLog .= $log . "\n";
+    }
+
+    $data = [
+        'progress' => (int) $percent,
+        'message' => $msg,
+        'last_log' => $log,
+        'full_log' => $fullLog,
+        'timestamp' => time(),
+        'status' => ($percent >= 100) ? 'completed' : 'processing'
+    ];
+    file_put_contents($file, json_encode($data));
+}
+
+function logMsg($msg, $percent = null)
+{
+    global $job_id;
+    // Output directo para vista tradicional
+    echo $msg . "<br>";
+    flush();
+    @ob_flush();
+
+    // Output para AJAX
+    if ($job_id) {
+        static $currentPercent = 0;
+        if ($percent !== null)
+            $currentPercent = $percent;
+        writeProgress($job_id, $currentPercent, $msg, $msg);
+    }
+}
+
+// Liberar sesión para no bloquear el polling AJAX
+session_write_close();
 ?>
 <!DOCTYPE html>
 <html lang="es">
 
 <head>
     <meta charset="UTF-8">
-    <title>Importador Multi-Fuente v9.4</title>
+    <title>Importador Multi-Fuente v14.1</title>
     <style>
         body {
             font-family: sans-serif;
@@ -131,33 +182,27 @@ function map_crime_type($tipo)
 </head>
 
 <body>
-    <h1>🚀 Importador Multi-Fuente v9.4</h1>
-
+    <h1>🚀 Importador Multi-Fuente v14.1</h1>
     <div id="statusText">Iniciando proceso...</div>
     <div class="progress-container">
         <div id="progressBar">0%</div>
     </div>
 
     <script>
-        const logBox = document.getElementById('logBox');
-        const progressBar = document.getElementById('progressBar');
-        const statusText = document.getElementById('statusText');
-
         function updateProgress(percent, label) {
             percent = Math.min(100, Math.max(0, Math.round(percent)));
-            progressBar.style.width = percent + '%';
-            progressBar.innerText = percent + '%';
-            if (label) statusText.innerText = label;
+            document.getElementById('progressBar').style.width = percent + '%';
+            document.getElementById('progressBar').innerText = percent + '%';
+            if (label) document.getElementById('statusText').innerText = label;
         }
-
         function scrollLog() {
-            logBox.scrollTop = logBox.scrollHeight;
+            var logBox = document.getElementById('logBox');
+            if (logBox) logBox.scrollTop = logBox.scrollHeight;
         }
     </script>
 
     <div class="log" id="logBox">
         <?php
-        // Padding invisible para forzar al navegador a renderizar (algunos esperan 4KB)
         echo "<!-- " . str_repeat("-", 4096) . " -->\n";
         flush();
         @ob_flush();
@@ -168,42 +213,38 @@ function map_crime_type($tipo)
         if (!empty($_POST['url_excel'])) {
             $url = trim($_POST['url_excel']);
             $originalName = basename($url);
-            echo "🌐 Descargando desde URL: $originalName... ";
-            flush();
-
+            logMsg("🌐 Descargando desde URL: $originalName...", 0);
             $ch = curl_init($url);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
             curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
             curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0');
-            curl_setopt($ch, CURLOPT_TIMEOUT, 600); // 10 min max download
-        
-            // --- PROGRESO DE DESCARGA REAL-TIME ---
+            curl_setopt($ch, CURLOPT_TIMEOUT, 600);
             curl_setopt($ch, CURLOPT_NOPROGRESS, false);
             curl_setopt($ch, CURLOPT_PROGRESSFUNCTION, function ($resource, $dltotal, $dlnow, $ultotal, $ulnow) {
                 static $lastPercent = 0;
                 if ($dltotal > 0) {
-                    $percent = ($dlnow / $dltotal) * 100 * 0.4; // Descarga es el primer 40%
+                    $percent = ($dlnow / $dltotal) * 100 * 0.4;
                     if (round($percent) > $lastPercent) {
                         $mb = round($dlnow / 1024 / 1024, 1);
-                        echo "<script>updateProgress($percent, 'Descargando... ($mb MB)'); scrollLog();</script>";
+                        $msg = "Descargando... ($mb MB)";
+                        echo "<script>updateProgress($percent, '$msg'); scrollLog();</script>";
+                        writeProgress($GLOBALS['job_id'], $percent, $msg);
                         flush();
                         @ob_flush();
                         $lastPercent = round($percent);
                     }
                 }
             });
-
             $fileData = curl_exec($ch);
             curl_close($ch);
-
             if ($fileData === false) {
                 echo "<b style='color:red'>ERROR: Fallo en descarga.</b>";
             } else {
                 $tempFile = tempnam(sys_get_temp_dir(), 'import_');
                 file_put_contents($tempFile, $fileData);
                 $fileToProcess = $tempFile;
-                echo "OK<br>";
+                logMsg("✅ Descarga completada.");
             }
         } elseif (isset($_FILES['archivo_excel']) && $_FILES['archivo_excel']['error'] === UPLOAD_ERR_OK) {
             $fileToProcess = $_FILES['archivo_excel']['tmp_name'];
@@ -212,177 +253,170 @@ function map_crime_type($tipo)
 
         if ($fileToProcess) {
             $isCSV = (strtolower(pathinfo($originalName, PATHINFO_EXTENSION)) === 'csv');
-
-            // --- INSERT SQL DINÁMICO (Con Fuente) ---
-            $sql = "INSERT IGNORE INTO sidpol_hechos (fuente, anio, mes, ubigeo_hecho, dpto_hecho, prov_hecho, dist_hecho, tipo_delito, sub_tipo_delito, modalidaD_delito, es_delito_general, cantidad, hash_unico) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            $sql = "INSERT INTO sidpol_hechos (fuente, anio, mes, dia_semana, hora, ubigeo_hecho, dpto_hecho, prov_hecho, dist_hecho, tipo_delito, sub_tipo_delito, modalidad_delito, es_delito_general, cantidad, hash_unico) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE cantidad = VALUES(cantidad)";
             $stmt = $pdo->prepare($sql);
             $totalGlobal = 0;
-            $startProgress = !empty($_POST['url_excel']) ? 40 : 0; // Si es URL, ya hubo 40% de descarga
+            $startProgress = !empty($_POST['url_excel']) ? 40 : 0;
             $remainingRange = 100 - $startProgress;
 
             if ($isCSV) {
-                echo "📄 Procesando archivo CSV... \n";
-                flush();
+                logMsg("📄 Procesando archivo CSV...", $startProgress);
                 if (($handle = fopen($fileToProcess, "r")) !== FALSE) {
                     $header = fgetcsv($handle, 0, ",");
-                    // Limpiar BOM y espacios de cabeceras
                     $header = array_map(function ($h) {
                         return trim(str_replace("\xEF\xBB\xBF", "", $h));
                     }, $header);
-
-                    // Detectar si es MPFN (Ministerio Público)
                     $isMPFN = in_array('anio_denuncia', $header) || in_array('distrito_fiscal', $header);
+                    // CSV Violencia Mujer IGF: tiene AÑO (con tilde), DPTO_HECHO, PROV_HECHO, DIST_HECHO, UBIGEO_HECHO, MES, CANTIDAD
+                    // y NO tiene tipo_delito, modalidad_delito, etc.
+                    // Normalizar header para detectar columnas con o sin tilde
+                    $headerNorm = array_map(fn($h) => strtoupper(iconv('UTF-8', 'ASCII//TRANSLIT', $h)), $header);
+                    $isVifDoc = (!$isMPFN && in_array('ANO', $headerNorm) && in_array('DPTO_HECHO', $headerNorm) && !in_array('TIPO_DELITO', $headerNorm) && !in_array('ANIO', $headerNorm));
                     $fuente = $isMPFN ? 'MPFN' : 'SIDPOL';
-                    echo "🔍 Fuente detectada: $fuente\n";
-
+                    // Mapa de columnas reales (con tilde) para CSV VIF
+                    $headerMap = array_combine($headerNorm, $header) + array_combine($header, $header);
                     $count = 0;
                     $rowCountTotal = 0;
-
-                    // --- DETECCIÓN DE VIOLENCIA / NIÑO (Basado en Cabeceras) ---
                     $isViolenciaDoc = false;
-                    $allHeadersStr = implode(" ", $header); // Corregido: usar valores, no llaves
-                    if (strpos($allHeadersStr, 'VIOLENCIA') !== false || strpos($allHeadersStr, 'AGRESOR') !== false || strpos($allHeadersStr, 'VICTIMA') !== false) {
+                    $allHeadersStr = implode(" ", $header);
+                    if ($isVifDoc || strpos($allHeadersStr, 'VIOLENCIA') !== false || strpos($allHeadersStr, 'AGRESOR') !== false || strpos($allHeadersStr, 'VICTIMA') !== false) {
                         $isViolenciaDoc = true;
                     }
-
+                    if ($isVifDoc) {
+                        logMsg("📋 Detectado: CSV Violencia Mujer/IGF - Importando como 4.VIOLENCIA...", $startProgress);
+                        // Eliminar los registros de 4.VIOLENCIA que provienen del Excel (no tienen detalle de provincia/distrito) para evitar duplicar el conteo
+                        $deleted = $pdo->exec("DELETE FROM sidpol_hechos WHERE fuente='SIDPOL' AND es_delito_general='4.VIOLENCIA' AND prov_hecho=''");
+                        if ($deleted > 0) {
+                            logMsg("🧹 Se limpiaron " . number_format($deleted) . " registros genéricos previos de violencia para sustituirlos por el detalle del CSV.");
+                        }
+                    }
                     while (($rowData = fgetcsv($handle, 0, ",")) !== FALSE) {
                         $rowCountTotal++;
                         $row = @array_combine($header, $rowData);
                         if (!$row)
                             continue;
-
                         if ($isMPFN) {
                             $anioVal = (int) $row['anio_denuncia'];
-                            $mes = 1; // El CSV de MPFN suele ser anual consolidado o mensual si se extrae de 'periodo'
-                            // Intentar extraer mes de 'periodo_denuncia' si es formato 'ENERO', 'FEBRERO', etc.
+                            $mes = 1;
                             $periodo = strtoupper($row['periodo_denuncia'] ?? '');
-                            if (strpos($periodo, 'ENERO') !== false && strpos($periodo, 'DICIEMBRE') !== false) {
-                                $mes = 0; // Representa todo el año
-                            }
-
+                            if (strpos($periodo, 'ENERO') !== false && strpos($periodo, 'DICIEMBRE') !== false)
+                                $mes = 0;
                             $ubigeo = $row['ubigeo_pjfs'] ?? '';
-                            $dpto = $row['dpto_pjfs'] ?? '';
-                            $prov = $row['prov_pjfs'] ?? '';
-                            $dist = $row['dist_pjfs'] ?? '';
-                            $tipo = $row['generico'] ?? '';
-                            $subtipo = $row['subgenerico'] ?? '';
-                            $mod = $row['des_articulo'] ?? '';
+                            $dpto = normalize_str($row['dpto_pjfs'] ?? '');
+                            $prov = normalize_str($row['prov_pjfs'] ?? '');
+                            $dist = normalize_str($row['dist_pjfs'] ?? '');
+                            $tipo = normalize_str(map_crime_type($row['generico'] ?? ''));
+                            $subtipo = normalize_str($row['subgenerico'] ?? '');
+                            $mod = normalize_str($row['des_articulo'] ?? '');
                             $cant = (int) ($row['cantidad'] ?? 1);
                             $general = '1.DELITOS';
-
-                            // --- NORMALIZACIÓN MPFN ---
-                            $tipo = map_crime_type($tipo);
-                            $tipo = normalize_str($tipo);
-                            $subtipo = normalize_str($subtipo);
-                            $mod = normalize_str($mod);
-                            $dpto = normalize_str($dpto);
-                            $prov = normalize_str($prov);
-                            $dist = normalize_str($dist);
+                        } elseif ($isVifDoc) {
+                            // CSV Violencia Mujer IGF: columnas con tilde, sin tipo_delito
+                            $anioVal = (int) ($row[$headerMap['ANO'] ?? 'AÑO'] ?? $row['AÑO'] ?? 2025);
+                            $mes = (int) ($row['MES'] ?? 1);
+                            $ubigeo = $row['UBIGEO_HECHO'] ?? '';
+                            $dpto = normalize_str($row['DPTO_HECHO'] ?? '');
+                            $prov = normalize_str($row['PROV_HECHO'] ?? '');
+                            $dist = normalize_str($row['DIST_HECHO'] ?? '');
+                            $tipo = 'VIOLENCIA CONTRA LA MUJER E INTEGRANTES DEL GRUPO FAMILIAR';
+                            $subtipo = '';
+                            $mod = 'VIOLENCIA CONTRA LA MUJER E IGF';
+                            $cant = (int) ($row['CANTIDAD'] ?? 1);
+                            $general = '4.VIOLENCIA';
                         } else {
-                            // Lógica genérica para CSV de SIDPOL (v8.0 adaptada)
                             $anioVal = $row['anio'] ?? 2025;
                             $mes = $row['mes'] ?? 1;
                             $ubigeo = $row['ubigeo_hecho'] ?? '';
-                            $dpto = $row['dpto_hecho'] ?? '';
-                            $prov = $row['prov_hecho'] ?? '';
-                            $dist = $row['dist_hecho'] ?? '';
-                            $tipo = $row['tipo_delito'] ?? '';
-                            $subtipo = $row['sub_tipo_delito'] ?? '';
-                            $mod = $row['modalidad_delito'] ?? '';
+                            $dpto = normalize_str($row['dpto_hecho'] ?? '');
+                            $prov = normalize_str($row['prov_hecho'] ?? '');
+                            $dist = normalize_str($row['dist_hecho'] ?? '');
+                            $tipo = normalize_str(map_crime_type($row['tipo_delito'] ?? ''));
+                            $subtipo = normalize_str($row['sub_tipo_delito'] ?? '');
+                            $mod = normalize_str($row['modalidad_delito'] ?? '');
                             $cant = (int) ($row['cantidad'] ?? 1);
                             $general = '1.DELITOS';
-
-                            // --- NORMALIZACIÓN SIDPOL CSV ---
-                            $tipo = map_crime_type($tipo);
-                            $tipo = normalize_str($tipo);
-                            $subtipo = normalize_str($subtipo);
-                            $mod = normalize_str($mod);
-                            $dpto = normalize_str($dpto);
                         }
-
-                        // --- CATEGORÍA ROBUSTA ---
                         $catText = strtoupper(($row['ES_DELITO_X'] ?? '') . " " . ($row['ES_DELITO_GENERAL'] ?? '') . " " . ($row['TIPO_GENERAL'] ?? '') . " " . ($row['CATEGORIA'] ?? '') . " " . $tipo . " " . $mod);
-                        if ($isViolenciaDoc || strpos($catText, 'VIOLENCIA') !== false || strpos($catText, '4.') !== false) {
+                        if (!$isVifDoc && ($isViolenciaDoc || strpos($catText, 'VIOLENCIA') !== false || strpos($catText, '4.') !== false)) {
                             $general = '4.VIOLENCIA';
-                        } else {
-                            $general = $isMPFN ? '1.DELITOS' : ($row['es_delito_general'] ?? '1.DELITOS');
+                        } elseif (!$isVifDoc && !$isMPFN) {
+                            $general = $row['es_delito_general'] ?? '1.DELITOS';
                         }
-
-                        $hash = md5($fuente . "_" . $anioVal . "_" . $mes . "_" . $ubigeo . "_" . $tipo . "_" . $mod . "_" . $cant);
-                        $stmt->execute([$fuente, $anioVal, $mes, $ubigeo, $dpto, $prov, $dist, $tipo, $subtipo, $mod, $general, $cant, $hash]);
-
-                        if ($stmt->rowCount() > 0)
-                            $count++;
-
+                        $tipo_db = substr($tipo, 0, 100);
+                        $subtipo_db = substr($subtipo, 0, 100);
+                        $mod_db = substr($mod, 0, 100);
+                        $mod_db = substr($mod, 0, 100);
+                        // Hash sin cantidad para permitir actualizaciones de conteo
+                        $hash = md5($fuente . "_" . $anioVal . "_" . $mes . "_" . $ubigeo . "_" . $tipo_db . "_" . $mod_db . "_" . ($row['dia_semana'] ?? '') . "_" . ($row['hora'] ?? ''));
+                        try {
+                            $stmt->execute([$fuente, $anioVal, $mes, ($row['dia_semana'] ?? ''), ($row['hora'] ?? null), $ubigeo, $dpto, $prov, $dist, $tipo_db, $subtipo_db, $mod_db, $general, $cant, $hash]);
+                            if ($stmt->rowCount() > 0)
+                                $count++;
+                        } catch (PDOException $e) {
+                        }
                         if ($rowCountTotal % 2000 == 0) {
-                            $subProg = min($remainingRange - 2, ($rowCountTotal / 80000) * $remainingRange);
-                            $totalProg = $startProgress + $subProg;
-                            echo "<script>updateProgress($totalProg, 'Procesando CSV - Fila $rowCountTotal...'); scrollLog();</script>";
-                            flush();
-                            @ob_flush();
-                            usleep(1000);
+                            $totalProg = $startProgress + min($remainingRange - 2, ($rowCountTotal / 80000) * $remainingRange);
+                            echo "<script>updateProgress($totalProg, '🧵 Procesando CSV...'); scrollLog();</script>";
+                            logMsg("Procesando CSV - Fila $rowCountTotal...", $totalProg);
                         }
                     }
                     fclose($handle);
+                    $totalGlobal += $count;
                 }
-                echo "<script>updateProgress(100, 'Importación CSV Finalizada');</script>";
-                echo " OK ($count)\n";
-                $totalGlobal += $count;
+                logMsg("✅ Importación CSV Finalizada.", 100);
             } else {
-                // --- PROCESADOR EXCEL (SIDPOL) ---
                 $zip = new ZipArchive;
                 if ($zip->open($fileToProcess) === TRUE) {
+                    logMsg("📦 Archivo Excel abierto correctamente.");
                     $sharedStrings = [];
                     if ($zip->locateName('xl/sharedStrings.xml') !== false) {
                         $xmlSS = new XMLReader();
                         $xmlSS->xml($zip->getFromName('xl/sharedStrings.xml'));
                         while ($xmlSS->read()) {
-                            if ($xmlSS->name === 't' && $xmlSS->nodeType === XMLReader::ELEMENT)
+                            if ($xmlSS->localName === 't' && $xmlSS->nodeType === XMLReader::ELEMENT)
                                 $sharedStrings[] = $xmlSS->readString();
                         }
                         $xmlSS->close();
                     }
-
                     $fuente = 'SIDPOL';
-                    // V9.2: Hojas a procesar (SKIP Hoja #4 - solo tiene PRINCIPALES_TIPOS sin modalidad,
-                    // duplica datos de Hoja #5 y genera miles de "Otros")
-                    // Hoja 1: Resumen nacional por Delitos/Faltas (ES_DELITO_X)
-                    // Hoja 2: Resumen nacional por PRINCIPALES_TIPOS
-                    // Hoja 3: Resumen nacional por PMODALIDADES
-                    // Hoja 5: Detalle distrito + P_MODALIDADES (la buena!)
-                    // Hoja 6: Detalle distrito + TIPO/SUB_TIPO/MODALIDAD (2025)
-                    // Hoja 7: Detalle distrito + TIPO/SUB_TIPO/MODALIDAD (2026)
-                    $permitidas = [1, 2, 3, 5, 6, 7];
+                    $permitidas = [1, 5, 6, 7];
+                    $latestYearInFile = 0;
                     foreach ($permitidas as $i) {
                         $sheetFile = "xl/worksheets/sheet$i.xml";
                         if ($zip->locateName($sheetFile) === false)
                             continue;
-                        echo "📄 Procesando Hoja Excel #$i... ";
-                        flush();
-
+                        logMsg("📄 Procesando Hoja Excel #$i...");
                         $xml = new XMLReader();
                         $xml->xml($zip->getFromName($sheetFile));
                         $rowNum = 0;
                         $count = 0;
                         $header = [];
                         while ($xml->read()) {
-                            if ($xml->name === 'row' && $xml->nodeType === XMLReader::ELEMENT) {
+                            if ($xml->localName === 'row' && $xml->nodeType === XMLReader::ELEMENT) {
                                 $rowNum++;
-                                $node = $xml->expand();
-                                $cells = $node->getElementsByTagName('c');
                                 $rowData = [];
-                                foreach ($cells as $cell) {
-                                    $ref = $cell->getAttribute('r');
-                                    preg_match('/([A-Z]+)/', $ref, $m);
-                                    $col = $m[1];
-                                    $type = $cell->getAttribute('t');
-                                    $vN = $cell->getElementsByTagName('v')->item(0);
-                                    $v = $vN ? $vN->nodeValue : '';
-                                    if ($type === 's' && isset($sharedStrings[$v]))
-                                        $v = $sharedStrings[$v];
-                                    $rowData[$col] = clean_val($v);
+                                $depth = $xml->depth;
+                                while ($xml->read() && $xml->depth > $depth) {
+                                    if ($xml->localName === 'c' && $xml->nodeType === XMLReader::ELEMENT) {
+                                        $ref = $xml->getAttribute('r');
+                                        preg_match('/([A-Z]+)/', $ref, $m);
+                                        $col = $m[1];
+                                        $type = $xml->getAttribute('t');
+                                        $v = '';
+                                        $cDepth = $xml->depth;
+                                        while ($xml->read() && $xml->depth > $cDepth) {
+                                            if ($xml->localName === 'v' && $xml->nodeType === XMLReader::ELEMENT) {
+                                                $v = $xml->readString();
+                                                if ($type === 's')
+                                                    $v = $sharedStrings[$v] ?? $v;
+                                                break;
+                                            }
+                                        }
+                                        $rowData[$col] = clean_val($v);
+                                    }
                                 }
-
                                 if ($rowNum === 1) {
                                     foreach ($rowData as $k => $v)
                                         $header[$k] = strtoupper($v);
@@ -390,170 +424,110 @@ function map_crime_type($tipo)
                                     $row = [];
                                     foreach ($header as $k => $v)
                                         $row[$v] = $rowData[$k] ?? '';
+                                    $anioVal = (int) preg_replace('/[^0-9]/', '', (string) ($row['ANIO'] ?: ($row['AÑO'] ?: '2025')));
+                                    if ($anioVal > $latestYearInFile)
+                                        $latestYearInFile = $anioVal;
 
-                                    // --- AÑO ---
-                                    $anioVal = $row['ANIO'] ?: ($row['AÑO'] ?: ($row['AÑO_DENUNCIA'] ?? '2025'));
-                                    $anioVal = preg_replace('/[^0-9]/', '', (string) $anioVal);
-                                    if (empty($anioVal) || (int) $anioVal < 2000)
-                                        $anioVal = 2025;
+                                    // ============================================================
+                                    // REGLA DE HOJAS INTELIGENTE v16.0 (con categorías completas)
+                                    // ============================================================
+        
+                                    if ($i == 1) {
+                                        // HOJA 1: Contiene TODAS las categorías (Delitos, Faltas, Violencia, Niños)
+                                        // Solo importamos las categorías NO-DELITOS, ya que los delitos
+                                        // vienen con más detalle de Hojas 5, 6 y 7.
+                                        $catRaw = strtolower(trim($row['ES_DELITO_X'] ?? ($row['ES_DELITO_GENERAL'] ?? '')));
+                                        if (strpos($catRaw, '1.') === 0 || $catRaw == '' || strpos($catRaw, 'delito') !== false)
+                                            continue; // Saltamos delitos: vienen de hojas 5/6/7
+        
+                                        // Mapear categoría al formato normalizado de la BD
+                                        if (strpos($catRaw, '2.') === 0 || strpos($catRaw, 'falta') !== false)
+                                            $cat_general = '2.FALTAS';
+                                        elseif (strpos($catRaw, '4.') === 0 || strpos($catRaw, 'violencia') !== false)
+                                            $cat_general = '4.VIOLENCIA';
+                                        elseif (strpos($catRaw, '3.') === 0 || strpos($catRaw, 'ni') !== false || strpos($catRaw, 'adolesc') !== false)
+                                            $cat_general = '3.NIÑOS Y ADOLESCENTES';
+                                        else
+                                            $cat_general = 'OTROS';
 
-                                    // --- DETECCIÓN DE VIOLENCIA / NIÑO (Basado en Cabeceras) ---
-                                    $isViolenciaDoc = false;
-                                    $allHeadersStr = implode(" ", array_keys($row));
-                                    if (strpos($allHeadersStr, 'VIOLENCIA') !== false || strpos($allHeadersStr, 'AGRESOR') !== false || strpos($allHeadersStr, 'VICTIMA') !== false) {
-                                        $isViolenciaDoc = true;
-                                    }
-
-                                    // --- V11.0: EVITAR DUPLICADOS Y CAPTURAR FALTAS/VIOLENCIA (Mejorado) ---
-                                    if ($i == 5 && (int) $anioVal >= 2025) {
-                                        // Detectar categoría usando TODO lo disponible (incluyendo la modalidad)
-                                        $catRaw = strtoupper(($row['ES_DELITO_X'] ?? '') . ($row['ES_DELITO_GENERAL'] ?? '') . ($row['TIPO_GENERAL'] ?? '') . ($row['CATEGORIA'] ?? '') . " " . $tipo . " " . $mod);
-                                        $esFalta = (strpos($catRaw, 'FALTA') !== false || strpos($catRaw, '2.') !== false);
-                                        $esViol = (strpos($catRaw, 'VIOLENCIA') !== false || strpos($catRaw, '4.') !== false);
-
-                                        // Para 2025+, Sheet 5 solo sirve para rescatar Faltas y Violencia.
-                                        if (!$esFalta && !$esViol) {
-                                            continue;
+                                        $cant = (int) ($row['N_DIST_ID_DGC'] ?: ($row['CANTIDAD'] ?: 1));
+                                        $dpto = normalize_str($row['DPTO_HECHO_NEW'] ?: ($row['DPTO_HECHO'] ?: ''));
+                                        $prov = normalize_str($row['PROV_HECHO'] ?? '');
+                                        $dist = normalize_str($row['DIST_HECHO'] ?? '');
+                                        $tipo = normalize_str($cat_general);
+                                        $mod = $cat_general;
+                                        // Hash sin cantidad para permitir actualizaciones de conteo
+                                        $hash = md5('SIDPOL_SHEET1_' . $anioVal . '_' . ($row['MES'] ?: 1) . '_' . $dpto . '_' . $cat_general);
+                                        try {
+                                            $stmt->execute([$fuente, $anioVal, ($row['MES'] ?: 1), '', null, '', $dpto, $prov, $dist, substr($cat_general, 0, 100), '', substr($cat_general, 0, 100), $cat_general, $cant, $hash]);
+                                            if ($stmt->rowCount() > 0)
+                                                $count++;
+                                        } catch (PDOException $e) {
                                         }
+                                        if ($rowNum % 500 == 0)
+                                            logMsg("Hoja #1 - Fila $rowNum...", $startProgress);
+                                        continue; // Ya procesada, pasar a siguiente fila
                                     }
 
-                                    // Hojas 1-3 son resúmenes nacionales: solo importar si tienen valor histórico
-                                    if ($i <= 3 && (int) $anioVal >= 2025)
+                                    // Hojas 5, 6, 7: Solo Delitos con detalle geográfico completo
+                                    // REGLA DINÁMICA: Sheet 7=Current, Sheet 6=Previous, Sheet 5=Rest
+                                    $refYear = ($latestYearInFile > 0) ? $latestYearInFile : 2025;
+
+                                    if ($i == 7 && $anioVal < $refYear)
+                                        continue;
+                                    if ($i == 6 && $anioVal != ($refYear - 1))
+                                        continue;
+                                    if ($i == 5 && $anioVal >= ($refYear - 1))
                                         continue;
 
-                                    // --- FILTRO: Hojas con detalle geográfico necesitan al menos provincia ---
-                                    if ($i >= 5 && empty($row['DIST_HECHO']) && empty($row['PROV_HECHO']))
+                                    $tipo_raw = strtoupper($row['TIPO'] ?? ($row['P_MODALIDADES'] ?? ''));
+                                    if (strpos($tipo_raw, 'TOTAL') !== false || strpos($tipo_raw, '1.') === 0 || strpos($tipo_raw, '2.') === 0)
                                         continue;
-
-                                    // --- CANTIDAD: n_dist_ID_DGC es el conteo real de incidentes ---
-                                    $cant = (int) ($row['N_DIST_ID_DGC'] ?: 1);
-                                    if ($cant <= 0)
-                                        $cant = 1;
-
-                                    // --- MAPEO INTELIGENTE POR HOJA (V9.2) ---
-                                    // Basado en diagnóstico de cabeceras reales del Excel SIDPOL
-        
-                                    // TIPO DE DELITO
-                                    if (!empty($row['TIPO'])) {
-                                        $tipo = $row['TIPO'];                    // Hojas 6,7
-                                    } elseif (!empty($row['PRINCIPALES_TIPOS'])) {
-                                        $tipo = $row['PRINCIPALES_TIPOS'];        // Hoja 2
-                                    } elseif (!empty($row['PMODALIDADES'])) {
-                                        $tipo = $row['PMODALIDADES'];             // Hoja 3
-                                    } elseif (!empty($row['P_MODALIDADES'])) {
-                                        $tipo = $row['P_MODALIDADES'];            // Hoja 5
-                                    } elseif (!empty($row['ES_DELITO_X'])) {
-                                        $tipo = $row['ES_DELITO_X'];              // Hoja 1
-                                    } else {
-                                        $tipo = 'Sin clasificar';
-                                    }
-
-                                    // Filtrar filas de totales
-                                    if (strpos(strtoupper($tipo), 'TOTAL') !== false)
-                                        continue;
-
-                                    // SUB-TIPO
-                                    $subtipo = $row['SUB_TIPO'] ?: '';
-
-                                    // MODALIDAD (la clave del problema)
-                                    if (!empty($row['MODALIDAD'])) {
-                                        $mod = $row['MODALIDAD'];                 // Hojas 6,7 (detalle completo)
-                                    } elseif (!empty($row['P_MODALIDADES'])) {
-                                        $mod = $row['P_MODALIDADES'];             // Hoja 5 (ej: "Conducción en estado de ebriedad")
-                                    } elseif (!empty($row['PMODALIDADES'])) {
-                                        $mod = $row['PMODALIDADES'];              // Hoja 3
-                                    } else {
-                                        $mod = $tipo;  // Fallback: usar el tipo en vez de "Otros"
-                                    }
-
-                                    // --- MAPEADO DE CATEGORÍA GENERAL ROBUSTO ---
-                                    $catText = strtoupper(($row['ES_DELITO_X'] ?? '') . " " . ($row['ES_DELITO_GENERAL'] ?? '') . " " . ($row['TIPO_GENERAL'] ?? '') . " " . ($row['CATEGORIA'] ?? '') . " " . $tipo . " " . $mod);
-
-                                    if ($isViolenciaDoc || strpos($catText, 'VIOLENCIA') !== false || strpos($catText, '4.') !== false) {
-                                        $general = '4.VIOLENCIA';
-                                    } elseif (strpos($catText, 'FALTA') !== false || strpos($catText, '2.') !== false) {
-                                        $general = '2.FALTAS';
-                                    } elseif (strpos($catText, 'NIÑO') !== false || strpos($catText, '3.') !== false) {
-                                        $general = '3. NIÑOS Y ADOLESCENTES';
-                                    } elseif (strpos($catText, 'DELITO') !== false || strpos($catText, '1.') !== false) {
-                                        $general = '1.DELITOS';
-                                    } else {
-                                        $general = 'OTROS';
-                                    }
-
-                                    // --- V10.0: NORMALIZACIÓN TOTAL ---
-                                    $tipo = map_crime_type($tipo);
-                                    $tipo = normalize_str($tipo);
-                                    $subtipo = normalize_str($subtipo);
+                                    $cant = (int) ($row['N_DIST_ID_DGC'] ?: ($row['CANTIDAD'] ?: 1));
+                                    if (!empty($row['TIPO']))
+                                        $tipo = $row['TIPO'];
+                                    elseif (!empty($row['P_MODALIDADES']))
+                                        $tipo = $row['P_MODALIDADES'];
+                                    else
+                                        $tipo = 'Otros';
+                                    $mod = !empty($row['MODALIDAD']) ? $row['MODALIDAD'] : $tipo;
+                                    $tipo = normalize_str(map_crime_type($tipo));
                                     $mod = normalize_str($mod);
-                                    // $general ya está normalizado arriba
-        
-                                    // --- UBICACIÓN ---
-                                    $mes = $row['MES'] ?: 1;
-                                    $ubigeo = $row['UBIGEO_HECHO'] ?: '';
-                                    $dpto = $row['DPTO_HECHO_NEW'] ?: ($row['DPTO_HECHO'] ?: '');
-                                    $prov = $row['PROV_HECHO'] ?: '';
-                                    $dist = $row['DIST_HECHO'] ?: '';
-
-                                    // --- HASH (Unificado v9.3 para permitir deduplicación entre hojas y fuentes) ---
-                                    $hash = md5($fuente . "_" . $anioVal . "_" . $mes . "_" . $ubigeo . "_" . $tipo . "_" . $mod . "_" . $cant);
-
-                                    $stmt->execute([
-                                        $fuente,
-                                        $anioVal,
-                                        $mes,
-                                        $ubigeo,
-                                        $dpto,
-                                        $prov,
-                                        $dist,
-                                        $tipo,
-                                        $subtipo,
-                                        $mod,
-                                        $general,
-                                        $cant,
-                                        $hash
-                                    ]);
-                                    if ($stmt->rowCount() > 0)
-                                        $count++;
-
-                                    if ($rowNum % 500 == 0) {
-                                        // Estimar progreso
-                                        $sheetWeight = 1 / count($permitidas);
-                                        $sheetIndex = array_search($i, $permitidas);
-                                        $baseSheetProg = ($sheetIndex * $sheetWeight) * $remainingRange;
-                                        $innerSheetProg = min($sheetWeight * $remainingRange * 0.9, ($rowNum / 3000) * $remainingRange);
-
-                                        $totalProgress = $startProgress + $baseSheetProg + $innerSheetProg;
-
-                                        echo "<script>updateProgress($totalProgress, 'Procesando Hoja #$i - Fila $rowNum...'); scrollLog();</script>";
-                                        flush();
-                                        @ob_flush();
+                                    $subtipo = normalize_str($row['SUB_TIPO'] ?? '');
+                                    $dpto = normalize_str($row['DPTO_HECHO_NEW'] ?: ($row['DPTO_HECHO'] ?: ''));
+                                    $prov = normalize_str($row['PROV_HECHO'] ?? '');
+                                    $dist = normalize_str($row['DIST_HECHO'] ?? '');
+                                    // Hash sin cantidad para permitir actualizaciones de conteo
+                                    $hash = md5($fuente . '_' . $anioVal . '_' . ($row['MES'] ?: 1) . '_' . ($row['UBIGEO_HECHO'] ?: '') . '_' . $tipo . '_' . $mod . '_' . ($row['DIA_SEMANA'] ?? '') . '_' . ($row['HORA'] ?? ''));
+                                    try {
+                                        $stmt->execute([$fuente, $anioVal, ($row['MES'] ?: 1), ($row['DIA_SEMANA'] ?? ''), ($row['HORA'] ?? null), ($row['UBIGEO_HECHO'] ?: ''), $dpto, $prov, $dist, substr($tipo, 0, 100), substr($subtipo, 0, 100), substr($mod, 0, 100), '1.DELITOS', $cant, $hash]);
+                                        if ($stmt->rowCount() > 0)
+                                            $count++;
+                                    } catch (PDOException $e) {
                                     }
+                                    if ($rowNum % 500 == 0)
+                                        logMsg("Hoja #$i - Fila $rowNum...", $startProgress + ($rowNum / 10000) * 10);
                                 }
                             }
                         }
                         $xml->close();
-                        echo " OK ($count)\n";
+                        logMsg("✅ Hoja #$i completada ($count).");
                         $totalGlobal += $count;
                     }
-                    echo "<script>updateProgress(100, 'Importación Finalizada');</script>";
-                    $zip->close();
                 }
+                logMsg("🎉 PROCESO COMPLETADO: $totalGlobal registros.", 100);
+                echo "<h2>🎉 PROCESO COMPLETADO: $totalGlobal registros insertados.</h2>";
             }
-            echo "<h2>🎉 PROCESO COMPLETADO: $totalGlobal registros insertados.</h2>";
         } else {
-            echo "<b style='color:yellow'>No se proporcionó ningún archivo o URL válida.</b>";
+            echo "<b>No se proporcionó archivo.</b>";
         }
-
         if ($tempFile && file_exists($tempFile))
             unlink($tempFile);
         ?>
     </div>
-    <div style="margin-top:20px;">
-        <a href="panel.php"
+    <div style="margin-top:20px;"><a href="panel.php"
             style="padding:10px 20px; background:#007bff; color:white; text-decoration:none; border-radius:5px;">Volver
-            al Panel</a>
-    </div>
+            al Panel</a></div>
 </body>
 
 </html>

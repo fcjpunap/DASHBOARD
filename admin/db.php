@@ -2,9 +2,9 @@
 // db.php - CONEXIÓN CENTRALIZADA A LA BASE DE DATOS
 // Usa las credenciales del usuario:
 $db_host = 'localhost';
-$db_name = 'fcjp_dashboard';
-$db_user = 'fcjp_dashboard';
-$db_pass = 'zuhnam-dagFam-9qacwo';
+$db_name = 'TU_base_de_datos';
+$db_user = 'TU_usuario';
+$db_pass = 'TU_password';
 
 try {
     $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);

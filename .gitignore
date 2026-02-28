@@ -1,34 +1,77 @@
-# Ignorar todo por defecto
-*
+# System/Editor files
+.DS_Store
+.vscode/
 
-# Permitir carpetas necesarias
-!admin/
-
-# Permitir solo archivos PHP y el esquema SQL
-!*.php
-!admin/**/*.php
-!database_schema.sql
-!.gitignore
-!htaccess
-!README.md
-!LICENSE
-
-# Excluir específicamente los archivos de prueba y diagnóstico
-admin/check_*.php
-admin/debug_*.php
-admin/conteo_*.php
-admin/show_*.php
-admin/verificar_*.php
-admin/dump_*.php
-admin/reset_*.php
-admin/procesar_excel_stream.php
-admin/procesar_local_xlsx.php
-migrar_csv_a_sql.php
-migrar_excel_final.php
-migrar_v4.php
-
-# Excluir archivos de datos y pesados (por si acaso)
+# Ignore temp files
+admin/temp/
 *.xlsx
 *.csv
-fcjp_dashboard.sql
-.DS_Store
+*.py
+*.bak
+*.txt
+*.sql
+
+# Folders with old versions
+antiguo/
+antiguo2/
+
+# Ignore test and diagnostic files (Broad patterns)
+admin/admin_check*
+admin/analizar*
+admin/analyze*
+admin/api_reportes.php
+admin/ccc.php
+admin/check_categories*
+admin/check_totals*
+admin/clean_duplicate*
+admin/cleanup*
+admin/create_idx.php
+admin/d1.php
+admin/debug_*
+admin/deep_*
+admin/df25.php
+admin/dfc.php
+admin/diag_*
+admin/direct_import.php
+admin/dump_*
+admin/eb_check*
+admin/f4.php
+admin/f5.php
+admin/faltas_*
+admin/faltascheck*
+admin/final_diag_*
+admin/find_*
+admin/force_clean.php
+admin/gen_faltas_sql.py
+admin/get_db_counts.php
+admin/importar_agrupacion.php
+admin/inspect_*
+admin/limpiar_mpfn.php
+admin/list_xlsx_types*
+admin/migrar_*
+admin/procesar_excel_stream.php
+admin/procesar_local_xlsx.php
+admin/reparar_2025.php
+admin/reset_*
+admin/restore_*
+admin/resync_*
+admin/run_sql_faltas2.php
+admin/sanar_2024.php
+admin/search_*
+admin/show_sheets*
+admin/sincronizar_faltas_*
+admin/sum_*
+admin/test_*
+admin/upgrade_db.php
+admin/verificar_importacion.php
+admin/conteo_final*
+admin/smart_clean.py
+
+# Root level test files
+diag_abigeato.php
+diag_cat_2020.php
+diag_extorsion.php
+diag_sidpol_2020.php
+fix_categories.php
+migrar_*
+reportes_completos.php

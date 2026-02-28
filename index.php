@@ -154,7 +154,9 @@ foreach ($data as $row) {
         $stats['total_faltas'] += $row['cantidad'];
     elseif ($row['es_delito_general'] == '4.VIOLENCIA')
         $stats['total_violencia'] += $row['cantidad'];
-    elseif ($row['es_delito_general'] == '3. NIÑOS Y ADOLESCENTES' || $row['es_delito_general'] == 'OTROS')
+    elseif (strpos($row['es_delito_general'], '3.') === 0 || $row['es_delito_general'] == '3. NIÑOS Y ADOLESCENTES')
+        @$stats['total_otros_cat'] += $row['cantidad'];
+    elseif ($row['es_delito_general'] == 'OTROS')
         @$stats['total_otros_cat'] += $row['cantidad'];
 
     // Evolución mensual
@@ -164,9 +166,13 @@ foreach ($data as $row) {
     // Composición
     @$composicion[$row['es_delito_general']] += $row['cantidad'];
 
-    // Modalidades
-    if ($row['modalidad_delito'])
-        @$modalidades[$row['modalidad_delito']] += $row['cantidad'];
+    // Modalidades (filtrando genéricos para el Top 10)
+    $mod = trim($row['modalidad_delito'] ?? '');
+    $excluir = ['OTROS', 'HURTO', 'ROBO', 'LESIONES', 'FALTAS', '2.FALTAS', '4.VIOLENCIA', '3.NIÑOS Y ADOLESCENTES', 'VIOLENCIA CONTRA LA MUJER E IGF'];
+    $es_cat_agregada = ($row['es_delito_general'] != '1.DELITOS');
+    if ($mod && !in_array($mod, $excluir) && !$es_cat_agregada) {
+        @$modalidades[$mod] += $row['cantidad'];
+    }
 }
 ksort($stats['evolucion']);
 arsort($composicion);
@@ -316,6 +322,143 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
             text-align: center;
             text-decoration: none;
             display: block;
+        }
+
+        /* Botones Especiales Premium */
+        .btn-premium {
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-weight: 700;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            font-size: 14px;
+        }
+
+        .btn-reports {
+            background: linear-gradient(135deg, #004a99 0%, #007bff 100%);
+            color: white;
+        }
+
+        .btn-reports:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 74, 153, 0.3);
+            filter: brightness(1.1);
+        }
+
+        .btn-map {
+            background: linear-gradient(135deg, #1e7e34 0%, #28a745 100%);
+            color: white;
+        }
+
+        .btn-map:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(40, 167, 69, 0.3);
+            filter: brightness(1.1);
+        }
+
+        .toolbar-special {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 25px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        /* Buscador Inteligente / Consola de Navegación */
+        .search-console-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 10000;
+            backdrop-filter: blur(8px);
+            justify-content: center;
+            align-items: flex-start;
+            padding-top: 10vh;
+        }
+
+        .search-console {
+            width: 90%;
+            max-width: 700px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 12px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+            color: #ccc;
+            font-family: 'Segoe UI', monospace;
+        }
+
+        .search-console-header {
+            padding: 20px;
+            background: #252525;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            border-bottom: 1px solid #333;
+        }
+
+        .search-console-header input {
+            flex-grow: 1;
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-size: 1.2em;
+            outline: none;
+        }
+
+        .search-console-results {
+            max-height: 60vh;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .search-item {
+            padding: 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 5px;
+            border-left: 3px solid transparent;
+        }
+
+        .search-item:hover {
+            background: #333;
+            border-left: 3px solid #28a745;
+            color: #fff;
+        }
+
+        .search-item .path {
+            font-size: 0.8em;
+            color: #666;
+            margin-bottom: 4px;
+        }
+
+        .search-item .modality {
+            font-weight: bold;
+            color: #28a745;
+        }
+
+        .btn-search-console {
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+            color: white;
+        }
+
+        .search-console-footer {
+            padding: 10px 20px;
+            background: #111;
+            font-size: 0.8em;
+            color: #555;
+            text-align: right;
         }
 
         /* KPIs */
@@ -561,6 +704,20 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
             updateSelect('filtro_comp_dist', dists, sel.comp_dist, 'Toda la Provincia', 'ninguno');
         }
 
+        // --- Navegación a Reportes y Mapa ---
+        function openReports() {
+            const anio = document.getElementById('filtro_anio').value;
+            const fuente = document.getElementById('filtro_fuente').value;
+            const dpto = document.getElementById('filtro_dpto').value;
+            window.location.href = `reportes_completos.php?anio=${anio}&fuente=${fuente}&dpto=${encodeURIComponent(dpto)}`;
+        }
+
+        function openMap() {
+            const anio = document.getElementById('filtro_anio').value;
+            const fuente = document.getElementById('filtro_fuente').value;
+            window.location.href = `mapa_peru.php?anio=${anio}&fuente=${fuente}`;
+        }
+
         // --- Inicialización: SOLO después de que el DOM esté listo ---
         document.addEventListener('DOMContentLoaded', async () => {
             // Tipo/Subtipo/Modalidad
@@ -629,7 +786,7 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
 
                 <div>
                     <label>Año Base:</label>
-                    <select name="filtro_anio">
+                    <select name="filtro_anio" id="filtro_anio">
                         <?php foreach ($anios as $a): ?>
                             <option value="<?= $a ?>" <?= $filtros['anio'] == $a ? 'selected' : '' ?>><?= $a ?></option>
                         <?php endforeach; ?>
@@ -672,7 +829,7 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
                 <div>
                     <label title="Suma de datos SIDPOL y MPFN sin duplicados">Fuente (Institución) <sup
                             style="color:#007bff; cursor:help;">(?)</sup>:</label>
-                    <select name="filtro_fuente">
+                    <select name="filtro_fuente" id="filtro_fuente">
                         <option value="todos"
                             title="Consolidado: Suma aritmética de denuncias de todas las fuentes disponibles (SIDPOL + MPFN)">
                             Todas (Consolidado)</option>
@@ -724,6 +881,19 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
             </form>
         </div>
 
+        <!-- BARRA DE ACCESO RÁPIDO A REPORTES Y MAPA -->
+        <div class="toolbar-special">
+            <button onclick="openSearchConsole()" class="btn-premium btn-search-console">
+                <span>🔍 Buscador Inteligente</span>
+            </button>
+            <button onclick="openReports()" class="btn-premium btn-reports">
+                <span>📋 Ver Reportes Completos</span>
+            </button>
+            <button onclick="openMap()" class="btn-premium btn-map">
+                <span>🗺️ Ver Mapa del Perú</span>
+            </button>
+        </div>
+
         <!-- KPIS -->
         <div class="kpis">
             <div class="card k-delito">
@@ -731,7 +901,7 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
                 $mostrar_total = ($filtros['tipo_general'] == 'todos') ? $stats['total_general'] : $stats['total_delitos'];
                 echo format_num($mostrar_total);
                 ?></h2>
-                <p>Total Delitos</p>
+                <p>Total Denuncias</p>
             </div>
             <div class="card k-violencia">
                 <h2><?= format_num($stats['total_violencia']) ?></h2>
@@ -930,6 +1100,75 @@ $max_comp_anio = max($stats['total_delitos'], $comp_anio_val);
         </div>
     </footer>
 
+    <!-- BUSCADOR INTELIGENTE / CONSOLA -->
+    <div id="searchConsoleOverlay" class="search-console-overlay" onclick="closeSearchConsole(event)">
+        <div class="search-console" onclick="event.stopPropagation()">
+            <div class="search-console-header">
+                <span>⚡</span>
+                <input type="text" id="consoleSearchInput" placeholder="Busca tipo, subtipo o modalidad..."
+                    onkeyup="performSearch()">
+            </div>
+            <div id="consoleSearchResults" class="search-console-results">
+                <div style="padding:40px; text-align:center; color:#555;">Inicia tu búsqueda de delitos...</div>
+            </div>
+            <div class="search-console-footer">
+                V1.0 - Core Engine Búsqueda Directa | Esc para salir
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allModalities = [];
+
+        async function openSearchConsole() {
+            document.getElementById('searchConsoleOverlay').style.display = 'flex';
+            document.getElementById('consoleSearchInput').focus();
+
+            if (allModalities.length === 0) {
+                const res = await fetch('admin/search_modalities.php');
+                allModalities = await res.json();
+            }
+        }
+
+        function closeSearchConsole(e) {
+            document.getElementById('searchConsoleOverlay').style.display = 'none';
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeSearchConsole();
+        });
+
+        function performSearch() {
+            const q = document.getElementById('consoleSearchInput').value.toLowerCase();
+            const container = document.getElementById('consoleSearchResults');
+
+            if (q.length < 2) {
+                container.innerHTML = '<div style="padding:40px; text-align:center; color:#555;">Escribe más de 2 caracteres...</div>';
+                return;
+            }
+
+            const filtered = allModalities.filter(m =>
+                m.tipo_delito.toLowerCase().includes(q) ||
+                m.sub_tipo_delito.toLowerCase().includes(q) ||
+                m.modalidad_delito.toLowerCase().includes(q)
+            ).slice(0, 50);
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<div style="padding:40px; text-align:center; color:#555;">No se encontraron coincidencias.</div>';
+                return;
+            }
+
+            container.innerHTML = filtered.map(item => {
+                const url = `index.php?filtro_dpto=PUNO&filtro_anio=2025&filtro_tipo_delito=${encodeURIComponent(item.tipo_delito)}&filtro_subtipo_delito=${encodeURIComponent(item.sub_tipo_delito)}&filtro_modalidad_delito=${encodeURIComponent(item.modalidad_delito)}`;
+                return `
+                        <div class="search-item" onclick="window.location.href='${url}'">
+                            <div class="path">${item.tipo_delito} > ${item.sub_tipo_delito}</div>
+                            <div class="modality">${item.modalidad_delito}</div>
+                        </div>
+                    `;
+            }).join('');
+        }
+    </script>
 </body>
 
 </html>
