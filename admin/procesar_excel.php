@@ -263,11 +263,15 @@ session_write_close();
 
             $modo_historico = $_POST['modo_historico'] ?? 'smart';
 
-            // Estadísticas previas para "Smart Mode": identificar años que ya tienen data considerable (ej. > 50,000)
-            $stmt_stats = $pdo->query("SELECT anio, SUM(cantidad) as total FROM sidpol_hechos WHERE fuente='SIDPOL' GROUP BY anio");
+            // Estadísticas previas para "Smart Mode"
+            // db_years: total de registros (para Excel)
+            // detailed_years: total de registros detallados (para CSV)
+            $stmt_stats = $pdo->query("SELECT anio, SUM(cantidad) as total, SUM(CASE WHEN prov_hecho != '' THEN 1 ELSE 0 END) as detallados FROM sidpol_hechos WHERE fuente='SIDPOL' GROUP BY anio");
             $db_years = [];
+            $detailed_years = [];
             while ($row = $stmt_stats->fetch()) {
                 $db_years[$row['anio']] = (int) $row['total'];
+                $detailed_years[$row['anio']] = (int) $row['detallados'];
             }
 
             if ($isCSV) {
@@ -325,11 +329,23 @@ session_write_close();
                     rewind($handle);
                     fgetcsv($handle, 0, ","); // saltar header
         
-                    // Filtrar años para importar usando lógica Smart
-                    // No filtrar años en CSV: Queremos que procese el archivo completo 
-                    // ya que el insert usa ON DUPLICATE KEY UPDATE y actualiza adecuadamente las cifras.
-                    $years_to_import = array_keys($distinct_years);
-                    $years_to_import = array_combine($years_to_import, array_fill(0, count($years_to_import), true));
+                    // Filtrar años para importar usando lógica Smart equilibrada
+                    $years_to_import = [];
+                    foreach (array_keys($distinct_years) as $yVal) {
+                        $will_import = true;
+                        // Si estamos en Smart y es un año histórico (anterior al más reciente del archivo)
+                        if ($modo_historico === 'smart' && $latestYearInCsv > 0 && $yVal < $latestYearInCsv) {
+                            // Si ya tenemos data detallada para ese año, lo saltamos para evitar inflación
+                            // (el archivo actual probablemente trae una copia del año pasado con ligeras variaciones de texto)
+                            if (($detailed_years[$yVal] ?? 0) > 1000) {
+                                $will_import = false;
+                            }
+                        }
+
+                        if ($will_import) {
+                            $years_to_import[$yVal] = true;
+                        }
+                    }
 
                     if ($isVifDoc) {
                         logMsg("📋 Detectado: CSV Violencia Mujer/IGF - Limpiando base para actualización...", $startProgress);
