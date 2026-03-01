@@ -293,16 +293,57 @@ session_write_close();
                     if ($isVifDoc || strpos($allHeadersStr, 'VIOLENCIA') !== false || strpos($allHeadersStr, 'AGRESOR') !== false || strpos($allHeadersStr, 'VICTIMA') !== false) {
                         $isViolenciaDoc = true;
                     }
-                    if ($isVifDoc) {
-                        logMsg("📋 Detectado: CSV Violencia Mujer/IGF - Importando como 4.VIOLENCIA...", $startProgress);
-                        // Eliminar los registros de 4.VIOLENCIA que provienen del Excel (no tienen detalle de provincia/distrito) para evitar duplicar el conteo
-                        $deleted = $pdo->exec("DELETE FROM sidpol_hechos WHERE fuente='SIDPOL' AND es_delito_general='4.VIOLENCIA' AND prov_hecho=''");
-                        if ($deleted > 0) {
-                            logMsg("🧹 Se limpiaron " . number_format($deleted) . " registros genéricos previos de violencia para sustituirlos por el detalle del CSV.");
+
+                    // PRIMER BARRIDO RÁPIDO: Identificar el año más reciente en el CSV y los años que lo componen
+                    $latestYearInCsv = 0;
+                    $distinct_years = [];
+                    while (($scanRow = fgetcsv($handle, 0, ",")) !== FALSE) {
+                        if (!is_array($scanRow) || count($scanRow) === 0)
+                            continue;
+                        $scanRowComb = @array_combine($header, $scanRow);
+                        if (!$scanRowComb)
+                            continue;
+                        $rUpper = array_change_key_case($scanRowComb, CASE_UPPER);
+                        $y = (int) ($rUpper['AÑO'] ?? $rUpper['ANO'] ?? $rUpper['ANIO'] ?? $rUpper['AÑO_HECHO'] ?? $rUpper['ANIO_DENUNCIA'] ?? date('Y'));
+                        if ($y > $latestYearInCsv) {
+                            $latestYearInCsv = $y;
+                        }
+                        $distinct_years[$y] = true;
+                    }
+                    rewind($handle);
+                    fgetcsv($handle, 0, ","); // saltar header
+        
+                    // Filtrar años para importar usando lógica Smart
+                    $years_to_import = [];
+                    foreach (array_keys($distinct_years) as $yVal) {
+                        $will_import = true;
+                        if ($modo_historico === 'smart' && $latestYearInCsv > 0 && $yVal < $latestYearInCsv) {
+                            if (($db_years[$yVal] ?? 0) > 50000) {
+                                $will_import = false; // Omitir año antiguo si ya hay más de 50k registros base
+                            }
+                        }
+                        if ($will_import) {
+                            $years_to_import[$yVal] = true;
                         }
                     }
+
+                    if ($isVifDoc) {
+                        logMsg("📋 Detectado: CSV Violencia Mujer/IGF - Limpiando base para actualización...", $startProgress);
+                        // Eliminar los registros de 4.VIOLENCIA que provienen del Excel genérico SOLO de los años a importar
+                        $deleted = 0;
+                        if (count($years_to_import) > 0) {
+                            $yList = implode(",", array_keys($years_to_import));
+                            // Only delete where fuente='SIDPOL' and prov_hecho='' (the generic ones imported from Sheet 1)
+                            $deleted = $pdo->exec("DELETE FROM sidpol_hechos WHERE fuente='SIDPOL' AND es_delito_general='4.VIOLENCIA' AND prov_hecho='' AND anio IN ($yList)");
+                        }
+                        if ($deleted > 0) {
+                            logMsg("🧹 Se limpiaron " . number_format($deleted) . " registros genéricos previos de violencia para sustituirlos por el detalle del CSV.");
+                        } else {
+                            logMsg("✅ La matriz base de violencia para los años seleccionados está lista o pre-limpiada.");
+                        }
+                    }
+
                     while (($rowData = fgetcsv($handle, 0, ",")) !== FALSE) {
-                        $rowCountTotal++;
                         $row = @array_combine($header, $rowData);
                         if (!$row)
                             continue;
@@ -312,6 +353,12 @@ session_write_close();
 
                         // Encontrar AÑO dinámicamente buscando variantes comunes de la columna:
                         $anioVal = (int) ($rowUpper['AÑO'] ?? $rowUpper['ANO'] ?? $rowUpper['ANIO'] ?? $rowUpper['AÑO_HECHO'] ?? $rowUpper['ANIO_DENUNCIA'] ?? date('Y'));
+
+                        if (!isset($years_to_import[$anioVal])) {
+                            continue; // Saltar fila si pertenece a un año histórico (según Modo Inteligente)
+                        }
+
+                        $rowCountTotal++;
 
                         if ($isMPFN) {
                             $mes = 1;
