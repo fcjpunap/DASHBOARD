@@ -306,56 +306,69 @@ session_write_close();
                         $row = @array_combine($header, $rowData);
                         if (!$row)
                             continue;
+
+                        // Parseo case-insensitive y sin acentos manual para no depender del caso de la cabecera
+                        $rowUpper = array_change_key_case($row, CASE_UPPER);
+
+                        // Encontrar AÑO dinámicamente:
+                        $anioVal = (int) ($rowUpper['AÑO'] ?? $rowUpper['ANO'] ?? $rowUpper['ANIO'] ?? $rowUpper['ANIO_DENUNCIA'] ?? date('Y'));
+
+                        // Logica SMART: Omitir años históricos si ya tienen > 50,000 registros para evitar bucles de actualización pesados
+                        // a menos que sea el año actual/reciente.
+                        if ($modo_historico === 'smart' && $anioVal < (int) date('Y')) {
+                            if (($db_years[$anioVal] ?? 0) > 50000) {
+                                // Omitir insertar años históricos masivamente desde el CSV
+                                continue;
+                            }
+                        }
+
                         if ($isMPFN) {
-                            $anioVal = (int) $row['anio_denuncia'];
                             $mes = 1;
-                            $periodo = strtoupper($row['periodo_denuncia'] ?? '');
+                            $periodo = strtoupper($rowUpper['PERIODO_DENUNCIA'] ?? '');
                             if (strpos($periodo, 'ENERO') !== false && strpos($periodo, 'DICIEMBRE') !== false)
                                 $mes = 0;
-                            $ubigeo = $row['ubigeo_pjfs'] ?? '';
-                            $dpto = normalize_str($row['dpto_pjfs'] ?? '');
-                            $prov = normalize_str($row['prov_pjfs'] ?? '');
-                            $dist = normalize_str($row['dist_pjfs'] ?? '');
-                            $tipo = normalize_str(map_crime_type($row['generico'] ?? ''));
-                            $subtipo = normalize_str($row['subgenerico'] ?? '');
-                            $mod = normalize_str($row['des_articulo'] ?? '');
-                            $cant = (int) ($row['cantidad'] ?? 1);
+                            $ubigeo = $rowUpper['UBIGEO_PJFS'] ?? '';
+                            $dpto = normalize_str($rowUpper['DPTO_PJFS'] ?? '');
+                            $prov = normalize_str($rowUpper['PROV_PJFS'] ?? '');
+                            $dist = normalize_str($rowUpper['DIST_PJFS'] ?? '');
+                            $tipo = normalize_str(map_crime_type($rowUpper['GENERICO'] ?? ''));
+                            $subtipo = normalize_str($rowUpper['SUBGENERICO'] ?? '');
+                            $mod = normalize_str($rowUpper['DES_ARTICULO'] ?? '');
+                            $cant = (int) ($rowUpper['CANTIDAD'] ?? 1);
                             $general = '1.DELITOS';
                         } elseif ($isVifDoc) {
-                            // CSV Violencia Mujer IGF: columnas con tilde, sin tipo_delito
-                            $anioVal = (int) ($row[$headerMap['ANO'] ?? 'AÑO'] ?? $row['AÑO'] ?? 2025);
-                            $mes = (int) ($row['MES'] ?? 1);
-                            $ubigeo = $row['UBIGEO_HECHO'] ?? '';
-                            $dpto = normalize_str($row['DPTO_HECHO'] ?? '');
-                            $prov = normalize_str($row['PROV_HECHO'] ?? '');
-                            $dist = normalize_str($row['DIST_HECHO'] ?? '');
+                            $mes = (int) ($rowUpper['MES'] ?? 1);
+                            $ubigeo = $rowUpper['UBIGEO_HECHO'] ?? '';
+                            $dpto = normalize_str($rowUpper['DPTO_HECHO'] ?? '');
+                            $prov = normalize_str($rowUpper['PROV_HECHO'] ?? '');
+                            $dist = normalize_str($rowUpper['DIST_HECHO'] ?? '');
                             $tipo = 'VIOLENCIA CONTRA LA MUJER E INTEGRANTES DEL GRUPO FAMILIAR';
                             $subtipo = '';
                             $mod = 'VIOLENCIA CONTRA LA MUJER E IGF';
-                            $cant = (int) ($row['CANTIDAD'] ?? 1);
+                            $cant = (int) ($rowUpper['CANTIDAD'] ?? 1);
                             $general = '4.VIOLENCIA';
                         } else {
-                            $anioVal = $row['anio'] ?? 2025;
-                            $mes = $row['mes'] ?? 1;
-                            $ubigeo = $row['ubigeo_hecho'] ?? '';
-                            $dpto = normalize_str($row['dpto_hecho'] ?? '');
-                            $prov = normalize_str($row['prov_hecho'] ?? '');
-                            $dist = normalize_str($row['dist_hecho'] ?? '');
-                            $tipo = normalize_str(map_crime_type($row['tipo_delito'] ?? ''));
-                            $subtipo = normalize_str($row['sub_tipo_delito'] ?? '');
-                            $mod = normalize_str($row['modalidad_delito'] ?? '');
-                            $cant = (int) ($row['cantidad'] ?? 1);
+                            $mes = (int) ($rowUpper['MES'] ?? 1);
+                            $ubigeo = $rowUpper['UBIGEO_HECHO'] ?? '';
+                            $dpto = normalize_str($rowUpper['DPTO_HECHO'] ?? '');
+                            $prov = normalize_str($rowUpper['PROV_HECHO'] ?? '');
+                            $dist = normalize_str($rowUpper['DIST_HECHO'] ?? '');
+                            $tipo = normalize_str(map_crime_type($rowUpper['TIPO_DELITO'] ?? ''));
+                            $subtipo = normalize_str($rowUpper['SUB_TIPO_DELITO'] ?? '');
+                            $mod = normalize_str($rowUpper['MODALIDAD_DELITO'] ?? '');
+                            $cant = (int) ($rowUpper['CANTIDAD'] ?? 1);
                             $general = '1.DELITOS';
                         }
+
                         $catText = strtoupper(($row['ES_DELITO_X'] ?? '') . " " . ($row['ES_DELITO_GENERAL'] ?? '') . " " . ($row['TIPO_GENERAL'] ?? '') . " " . ($row['CATEGORIA'] ?? '') . " " . $tipo . " " . $mod);
                         if (!$isVifDoc && ($isViolenciaDoc || strpos($catText, 'VIOLENCIA') !== false || strpos($catText, '4.') !== false)) {
                             $general = '4.VIOLENCIA';
                         } elseif (!$isVifDoc && !$isMPFN) {
                             $general = $row['es_delito_general'] ?? '1.DELITOS';
                         }
+
                         $tipo_db = substr($tipo, 0, 100);
                         $subtipo_db = substr($subtipo, 0, 100);
-                        $mod_db = substr($mod, 0, 100);
                         $mod_db = substr($mod, 0, 100);
                         // Hash sin cantidad para permitir actualizaciones de conteo
                         $hash = md5($fuente . "_" . $anioVal . "_" . $mes . "_" . $ubigeo . "_" . $tipo_db . "_" . $mod_db . "_" . ($row['dia_semana'] ?? '') . "_" . ($row['hora'] ?? ''));
