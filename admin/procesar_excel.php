@@ -282,7 +282,8 @@ session_write_close();
                     // y NO tiene tipo_delito, modalidad_delito, etc.
                     // Normalizar header para detectar columnas con o sin tilde
                     $headerNorm = array_map(fn($h) => strtoupper(iconv('UTF-8', 'ASCII//TRANSLIT', $h)), $header);
-                    $isVifDoc = (!$isMPFN && in_array('ANO', $headerNorm) && in_array('DPTO_HECHO', $headerNorm) && !in_array('TIPO_DELITO', $headerNorm) && !in_array('ANIO', $headerNorm));
+                    // Detección robusta de VIF: Tiene AÑO o ANIO y tiene DPTO_HECHO, pero NO tiene la columna detallada TIPO_DELITO
+                    $isVifDoc = (!$isMPFN && (in_array('ANO', $headerNorm) || in_array('ANIO', $headerNorm)) && in_array('DPTO_HECHO', $headerNorm) && !in_array('TIPO_DELITO', $headerNorm));
                     $fuente = $isMPFN ? 'MPFN' : 'SIDPOL';
                     // Mapa de columnas reales (con tilde) para CSV VIF
                     $headerMap = array_combine($headerNorm, $header) + array_combine($header, $header);
@@ -294,17 +295,28 @@ session_write_close();
                         $isViolenciaDoc = true;
                     }
 
+                    // Identificar el índice de la columna de AÑO una sola vez
+                    $yearIdx = false;
+                    foreach (['ANO', 'ANIO', 'ANO_HECHO', 'ANIO_DENUNCIA'] as $target) {
+                        $idx = array_search($target, $headerNorm);
+                        if ($idx !== false) {
+                            $yearIdx = $idx;
+                            break;
+                        }
+                    }
+
                     // PRIMER BARRIDO RÁPIDO: Identificar el año más reciente en el CSV y los años que lo componen
                     $latestYearInCsv = 0;
                     $distinct_years = [];
                     while (($scanRow = fgetcsv($handle, 0, ",")) !== FALSE) {
                         if (!is_array($scanRow) || count($scanRow) === 0)
                             continue;
-                        $scanRowComb = @array_combine($header, $scanRow);
-                        if (!$scanRowComb)
-                            continue;
-                        $rUpper = array_change_key_case($scanRowComb, CASE_UPPER);
-                        $y = (int) ($rUpper['AÑO'] ?? $rUpper['ANO'] ?? $rUpper['ANIO'] ?? $rUpper['AÑO_HECHO'] ?? $rUpper['ANIO_DENUNCIA'] ?? date('Y'));
+
+                        $yRaw = ($yearIdx !== false && isset($scanRow[$yearIdx])) ? $scanRow[$yearIdx] : date('Y');
+                        $y = (int) preg_replace('/[^0-9]/', '', (string) $yRaw);
+                        if ($y < 1900 || $y > 2100)
+                            $y = (int) date('Y');
+
                         if ($y > $latestYearInCsv) {
                             $latestYearInCsv = $y;
                         }
@@ -336,21 +348,23 @@ session_write_close();
                     }
 
                     while (($rowData = fgetcsv($handle, 0, ",")) !== FALSE) {
+                        // Determinar el año de la fila de forma eficiente usando el índice
+                        $anioVal = ($yearIdx !== false && isset($rowData[$yearIdx])) ? (int) preg_replace('/[^0-9]/', '', (string) $rowData[$yearIdx]) : (int) date('Y');
+                        if ($anioVal < 1900 || $anioVal > 2100)
+                            $anioVal = (int) date('Y');
+
+                        if (!isset($years_to_import[$anioVal])) {
+                            continue;
+                        }
+
                         $row = @array_combine($header, $rowData);
                         if (!$row)
                             continue;
 
-                        // Parseo case-insensitive y sin acentos manual para no depender del caso de la cabecera
-                        $rowUpper = array_change_key_case($row, CASE_UPPER);
-
-                        // Encontrar AÑO dinámicamente buscando variantes comunes de la columna:
-                        $anioVal = (int) ($rowUpper['AÑO'] ?? $rowUpper['ANO'] ?? $rowUpper['ANIO'] ?? $rowUpper['AÑO_HECHO'] ?? $rowUpper['ANIO_DENUNCIA'] ?? date('Y'));
-
-                        if (!isset($years_to_import[$anioVal])) {
-                            continue; // Saltar fila si pertenece a un año histórico (según Modo Inteligente)
-                        }
-
                         $rowCountTotal++;
+
+                        // Parseo case-insensitive para el resto de columnas
+                        $rowUpper = array_change_key_case($row, CASE_UPPER);
 
                         if ($isMPFN) {
                             $mes = 1;
@@ -408,7 +422,7 @@ session_write_close();
                                 $count++;
                         } catch (PDOException $e) {
                         }
-                        if ($rowCountTotal % 2000 == 0) {
+                        if ($rowCountTotal % 500 == 0) {
                             $totalProg = $startProgress + min($remainingRange - 2, ($rowCountTotal / 80000) * $remainingRange);
                             echo "<script>updateProgress($totalProg, '🧵 Procesando CSV...'); scrollLog();</script>";
                             logMsg("Procesando CSV - Fila $rowCountTotal...", $totalProg);
@@ -417,7 +431,7 @@ session_write_close();
                     fclose($handle);
                     $totalGlobal += $count;
                 }
-                logMsg("✅ Importación CSV Finalizada.", 100);
+                logMsg("✅ IMPORTACIÓN CSV FINALIZADA: " . number_format($count) . " registros procesados.", 100);
             } else {
                 $zip = new ZipArchive;
                 if ($zip->open($fileToProcess) === TRUE) {
