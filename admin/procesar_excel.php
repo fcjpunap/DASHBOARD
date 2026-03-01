@@ -261,6 +261,15 @@ session_write_close();
             $startProgress = !empty($_POST['url_excel']) ? 40 : 0;
             $remainingRange = 100 - $startProgress;
 
+            $modo_historico = $_POST['modo_historico'] ?? 'smart';
+
+            // Estadísticas previas para "Smart Mode": identificar años que ya tienen data considerable (ej. > 50,000)
+            $stmt_stats = $pdo->query("SELECT anio, SUM(cantidad) as total FROM sidpol_hechos WHERE fuente='SIDPOL' GROUP BY anio");
+            $db_years = [];
+            while ($row = $stmt_stats->fetch()) {
+                $db_years[$row['anio']] = (int) $row['total'];
+            }
+
             if ($isCSV) {
                 logMsg("📄 Procesando archivo CSV...", $startProgress);
                 if (($handle = fopen($fileToProcess, "r")) !== FALSE) {
@@ -381,7 +390,8 @@ session_write_close();
                         $xmlSS->close();
                     }
                     $fuente = 'SIDPOL';
-                    $permitidas = [1, 5, 6, 7];
+                    // Procesar Hoja 7 primero (el año actual) para que $latestYearInFile se defina inmediatamente
+                    $permitidas = [7, 6, 5, 1];
                     $latestYearInFile = 0;
                     foreach ($permitidas as $i) {
                         $sheetFile = "xl/worksheets/sheet$i.xml";
@@ -427,6 +437,15 @@ session_write_close();
                                     $anioVal = (int) preg_replace('/[^0-9]/', '', (string) ($row['ANIO'] ?: ($row['AÑO'] ?: '2025')));
                                     if ($anioVal > $latestYearInFile)
                                         $latestYearInFile = $anioVal;
+
+                                    // Lógica Smart: Si estamos en modo inteligente (por defecto) y esta fila es de un año anterior
+                                    // Y verificamos que la BD ya tiene al menos 50,000 registros para dicho año histórico,
+                                    // omitimos la importación de este año para EVITAR INFLAR DATOS CON DUPLICADOS INVISIBLES.
+                                    if ($modo_historico === 'smart' && $latestYearInFile > 0 && $anioVal < $latestYearInFile) {
+                                        if (($db_years[$anioVal] ?? 0) > 50000) {
+                                            continue;
+                                        }
+                                    }
 
                                     // ============================================================
                                     // REGLA DE HOJAS INTELIGENTE v16.0 (con categorías completas)

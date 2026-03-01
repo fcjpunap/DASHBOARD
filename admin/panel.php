@@ -186,6 +186,16 @@ if (!isset($_SESSION['admin_logged_in'])) {
                 <?= ini_get('upload_max_filesize') ?>
             </p>
 
+            <label for="modo_historico" style="margin-top: 15px; display:block;">Modo de Importación (Solo
+                SIDPOL):</label>
+            <select name="modo_historico" id="modo_historico"
+                style="width: 100%; padding: 10px; margin-bottom: 20px; border-radius: 4px; border: 1px solid #ccc; font-size: 14px;">
+                <option value="smart">🌟 Modo Inteligente: Importar solo datos más recientes o faltantes (Previene 100%
+                    de inflación)</option>
+                <option value="full">⚠️ Modo Completo: Forzar importación de todo el archivo (Recomendado solo si la BD
+                    está vacía)</option>
+            </select>
+
             <button type="submit" class="btn-submit" id="btnSubmit">🚀 Procesar Datos</button>
             <button type="button" id="btnLimpiar"
                 style="width: 100%; padding: 10px; background-color: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin-top: 10px; font-weight: bold;">🧹
@@ -303,25 +313,7 @@ if (!isset($_SESSION['admin_logged_in'])) {
                 finished = true;
                 return response.text();
             }).then(async () => {
-                console.log("Paso 1 finalizado.");
-
-                // ── PASO 2 (solo XLSX): Importar Faltas/Violencia/Niños/Otros ──
-                if (isXlsx) {
-                    title.innerText = "⏳ Paso 2/2: Complementando categorías (Faltas, Violencia, Niños...)";
-                    bar.style.width = '95%';
-                    bar.innerText = '95%';
-                    consoleLog.innerText += "\n\n📋 [PASO 2] Importando Faltas, Violencia, Niños y Otros desde Hoja 1...\n";
-                    consoleLog.scrollTop = consoleLog.scrollHeight;
-
-                    try {
-                        const res2 = await fetch('import_sheet1_categories.php?auto=1&v=' + Date.now());
-                        const txt2 = await res2.text();
-                        consoleLog.innerText += txt2;
-                        consoleLog.scrollTop = consoleLog.scrollHeight;
-                    } catch (e2) {
-                        consoleLog.innerText += "\n⚠️ Paso 2 no se pudo verificar: " + e2.message;
-                    }
-                }
+                console.log("Procesamiento finalizado.");
 
                 bar.style.width = '100%';
                 bar.innerText = '100% - Completado';
@@ -346,10 +338,9 @@ if (!isset($_SESSION['admin_logged_in'])) {
                     const data = await res.json();
 
                     if (data.progress !== undefined) {
-                        // Solo actualizar barra si no estamos en paso 2 (max 90%)
                         if (!finished) {
-                            bar.style.width = Math.min(data.progress, 90) + '%';
-                            bar.innerText = Math.min(data.progress, 90) + '%';
+                            bar.style.width = Math.min(data.progress, 100) + '%';
+                            bar.innerText = Math.min(data.progress, 100) + '%';
                         }
                         title.innerText = data.message || "Procesando...";
 
