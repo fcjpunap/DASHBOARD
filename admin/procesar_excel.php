@@ -310,17 +310,8 @@ session_write_close();
                         // Parseo case-insensitive y sin acentos manual para no depender del caso de la cabecera
                         $rowUpper = array_change_key_case($row, CASE_UPPER);
 
-                        // Encontrar AÑO dinámicamente:
-                        $anioVal = (int) ($rowUpper['AÑO'] ?? $rowUpper['ANO'] ?? $rowUpper['ANIO'] ?? $rowUpper['ANIO_DENUNCIA'] ?? date('Y'));
-
-                        // Logica SMART: Omitir años históricos si ya tienen > 50,000 registros para evitar bucles de actualización pesados
-                        // a menos que sea el año actual/reciente.
-                        if ($modo_historico === 'smart' && $anioVal < (int) date('Y')) {
-                            if (($db_years[$anioVal] ?? 0) > 50000) {
-                                // Omitir insertar años históricos masivamente desde el CSV
-                                continue;
-                            }
-                        }
+                        // Encontrar AÑO dinámicamente buscando variantes comunes de la columna:
+                        $anioVal = (int) ($rowUpper['AÑO'] ?? $rowUpper['ANO'] ?? $rowUpper['ANIO'] ?? $rowUpper['AÑO_HECHO'] ?? $rowUpper['ANIO_DENUNCIA'] ?? date('Y'));
 
                         if ($isMPFN) {
                             $mes = 1;
