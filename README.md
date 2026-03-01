@@ -48,4 +48,10 @@ El sistema se alimenta de:
 Este dashboard es una herramienta de visualización basada en datos estadísticos oficiales. Los reportes generados son referenciales y dependen de la actualización de los portales de Gobierno Abierto.
 
 ---
+
+## 👨‍💻 Autoría y Reconocimientos
+**Autor Principal:** Michael Espinoza Coila.  
+*Este sistema de Business Intelligence y Legal Tech ha sido desarrollado íntegramente por el autor, contando con la asistencia técnica de inteligencia artificial avanzada, específicamente **Gemini 3 Flash y Pro** y **Claude 4.5 Opus**, quienes colaboraron en la estructuración de la lógica algorítmica y revisión del código.*
+
+---
 © 2026 Michael Espinoza Coila - Optimizado para el manejo de grandes volúmenes de datos y registros históricos de criminalidad.
