@@ -314,18 +314,10 @@ session_write_close();
                     fgetcsv($handle, 0, ","); // saltar header
         
                     // Filtrar años para importar usando lógica Smart
-                    $years_to_import = [];
-                    foreach (array_keys($distinct_years) as $yVal) {
-                        $will_import = true;
-                        if ($modo_historico === 'smart' && $latestYearInCsv > 0 && $yVal < $latestYearInCsv) {
-                            if (($db_years[$yVal] ?? 0) > 50000) {
-                                $will_import = false; // Omitir año antiguo si ya hay más de 50k registros base
-                            }
-                        }
-                        if ($will_import) {
-                            $years_to_import[$yVal] = true;
-                        }
-                    }
+                    // No filtrar años en CSV: Queremos que procese el archivo completo 
+                    // ya que el insert usa ON DUPLICATE KEY UPDATE y actualiza adecuadamente las cifras.
+                    $years_to_import = array_keys($distinct_years);
+                    $years_to_import = array_combine($years_to_import, array_fill(0, count($years_to_import), true));
 
                     if ($isVifDoc) {
                         logMsg("📋 Detectado: CSV Violencia Mujer/IGF - Limpiando base para actualización...", $startProgress);
